@@ -1,4 +1,4 @@
-import type { ComparisonResult, Project, Workspace } from '../types/domain';
+import type { ComparisonResult, Employee, MatrixCell, Project, ProjectTask, Scenario, Workspace } from '../types/domain';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -17,8 +17,33 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+function json(method: string, body?: unknown): RequestInit {
+  return { method, body: body ? JSON.stringify(body) : undefined };
+}
+
 export const api = {
   getProjects: () => request<Project[]>('/projects'),
   getWorkspace: (projectId: string) => request<Workspace>(`/projects/${projectId}/workspace`),
-  calculateProject: (projectId: string) => request<ComparisonResult>(`/projects/${projectId}/calculate`, { method: 'POST' }),
+  calculateProject: (projectId: string) => request<ComparisonResult>(`/projects/${projectId}/calculate`, json('POST')),
+
+  // Проект.
+  updateProject: (projectId: string, data: Partial<Project>) => request<Project>(`/projects/${projectId}`, json('PUT', data)),
+
+  // Задачи проекта.
+  createTask: (projectId: string, data: Partial<ProjectTask>) => request<ProjectTask>(`/projects/${projectId}/tasks`, json('POST', data)),
+  updateTask: (taskId: string, data: Partial<ProjectTask>) => request<ProjectTask>(`/tasks/${taskId}`, json('PATCH', data)),
+  deleteTask: (taskId: string) => request<{ ok: boolean }>(`/tasks/${taskId}`, json('DELETE')),
+
+  // Исполнители.
+  createEmployee: (data: Partial<Employee>) => request<Employee>('/employees', json('POST', data)),
+  updateEmployee: (employeeId: string, data: Partial<Employee>) => request<Employee>(`/employees/${employeeId}`, json('PATCH', data)),
+  deleteEmployee: (employeeId: string) => request<{ ok: boolean }>(`/employees/${employeeId}`, json('DELETE')),
+
+  // Матрица модели.
+  updateMatrix: (cells: MatrixCell[]) => request<MatrixCell[]>('/risk-matrix/default', json('PUT', { cells })),
+
+  // Сценарии и назначения.
+  createScenario: (projectId: string, data: Partial<Scenario>) => request<Scenario>(`/projects/${projectId}/scenarios`, json('POST', data)),
+  updateScenario: (scenarioId: string, data: Partial<Scenario>) => request<Scenario>(`/scenarios/${scenarioId}`, json('PATCH', data)),
+  deleteScenario: (scenarioId: string) => request<{ ok: boolean }>(`/scenarios/${scenarioId}`, json('DELETE')),
 };
