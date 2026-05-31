@@ -66,6 +66,40 @@ export async function deleteTask(req: Request, res: Response): Promise<void> {
   res.json({ ok: true });
 }
 
+export async function replaceProjectTasks(req: Request, res: Response): Promise<void> {
+  const projectId = req.params.projectId;
+  const tasks = Array.isArray(req.body.tasks) ? req.body.tasks : [];
+
+  // Групповое сохранение задач: пользователь редактирует таблицу на клиенте,
+  // а сервер заменяет весь набор задач проекта одной операцией.
+  await TaskModel.deleteMany({ projectId });
+
+  const normalizedTasks = tasks.map((task: any, index: number) => ({
+    _id: task.id || makeId('task'),
+    projectId,
+    name: task.name || 'Новая задача',
+    stage: task.stage || 'analytics',
+    baseHours: Number(task.baseHours || 1),
+    complexityLevel: task.complexityLevel || 'L1',
+    isCritical: Boolean(task.isCritical),
+    order: Number(task.order || index + 1),
+  }));
+
+  const createdTasks = normalizedTasks.length > 0
+    ? await TaskModel.insertMany(normalizedTasks)
+    : [];
+
+  const actualTaskIds = normalizedTasks.map((task: any) => task._id);
+
+  // Если пользователь удалил задачу из таблицы, удаляем и назначения на нее в сценариях проекта.
+  await ScenarioModel.updateMany(
+    { projectId },
+    { $pull: { assignments: { taskId: { $nin: actualTaskIds } } } }
+  );
+
+  res.json(createdTasks.map((task: any) => mapTask(task.toObject())));
+}
+
 export async function createEmployee(req: Request, res: Response): Promise<void> {
   const id = req.body.id || makeId('emp');
 
@@ -103,6 +137,37 @@ export async function deleteEmployee(req: Request, res: Response): Promise<void>
   // Удаляем назначения на удаленного исполнителя.
   await ScenarioModel.updateMany({}, { $pull: { assignments: { employeeId: req.params.employeeId } } });
   res.json({ ok: true });
+}
+
+export async function replaceEmployees(req: Request, res: Response): Promise<void> {
+  const employees = Array.isArray(req.body.employees) ? req.body.employees : [];
+
+  // Групповое сохранение справочника исполнителей.
+  // Исполнители являются общими для системы, поэтому заменяем весь справочник целиком.
+  await EmployeeModel.deleteMany({});
+
+  const normalizedEmployees = employees.map((employee: any) => ({
+    _id: employee.id || makeId('emp'),
+    name: employee.name || 'Новый исполнитель',
+    role: employee.role || 'general',
+    grade: employee.grade || 'middle',
+    hourRate: Number(employee.hourRate || 1000),
+    availability: Number(employee.availability || 1),
+  }));
+
+  const createdEmployees = normalizedEmployees.length > 0
+    ? await EmployeeModel.insertMany(normalizedEmployees)
+    : [];
+
+  const actualEmployeeIds = normalizedEmployees.map((employee: any) => employee._id);
+
+  // Если исполнитель удален из справочника, удаляем назначения на него из сценариев.
+  await ScenarioModel.updateMany(
+    {},
+    { $pull: { assignments: { employeeId: { $nin: actualEmployeeIds } } } }
+  );
+
+  res.json(createdEmployees.map((employee: any) => mapEmployee(employee.toObject())));
 }
 
 export async function updateDefaultMatrix(req: Request, res: Response): Promise<void> {

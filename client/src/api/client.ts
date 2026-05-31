@@ -23,6 +23,7 @@ function json(method: string, body?: unknown): RequestInit {
 
 export const api = {
   getProjects: () => request<Project[]>('/projects'),
+  getEmployees: () => request<Employee[]>('/employees'),
   getWorkspace: (projectId: string) => request<Workspace>(`/projects/${projectId}/workspace`),
   calculateProject: (projectId: string) => request<ComparisonResult>(`/projects/${projectId}/calculate`, json('POST')),
 
@@ -31,11 +32,13 @@ export const api = {
 
   // Задачи проекта.
   createTask: (projectId: string, data: Partial<ProjectTask>) => request<ProjectTask>(`/projects/${projectId}/tasks`, json('POST', data)),
+  replaceProjectTasks: (projectId: string, tasks: ProjectTask[]) => request<ProjectTask[]>(`/projects/${projectId}/tasks/bulk`, json('PUT', { tasks })),
   updateTask: (taskId: string, data: Partial<ProjectTask>) => request<ProjectTask>(`/tasks/${taskId}`, json('PATCH', data)),
   deleteTask: (taskId: string) => request<{ ok: boolean }>(`/tasks/${taskId}`, json('DELETE')),
 
   // Исполнители.
   createEmployee: (data: Partial<Employee>) => request<Employee>('/employees', json('POST', data)),
+  replaceEmployees: (employees: Employee[]) => request<Employee[]>('/employees/bulk', json('PUT', { employees })),
   updateEmployee: (employeeId: string, data: Partial<Employee>) => request<Employee>(`/employees/${employeeId}`, json('PATCH', data)),
   deleteEmployee: (employeeId: string) => request<{ ok: boolean }>(`/employees/${employeeId}`, json('DELETE')),
 

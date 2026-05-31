@@ -6,7 +6,7 @@ import { BudgetChart } from '../components/BudgetChart';
 import { ComparisonTable } from '../components/ComparisonTable';
 import { Section } from '../components/Section';
 import { StatCard } from '../components/StatCard';
-import type { ComparisonResult, ComplexityLevel, Employee, GradeCode, MatrixCell, ProjectStage, ProjectTask, Scenario, ScenarioAssignment, Workspace } from '../types/domain';
+import type { ComparisonResult, ComplexityLevel, GradeCode, MatrixCell, ProjectStage, ProjectTask, Scenario, ScenarioAssignment, Workspace } from '../types/domain';
 
 interface Props {
   projectId: string;
@@ -125,7 +125,6 @@ export function WorkspacePage({ projectId, onBack }: Props) {
 
         <TasksEditor workspace={workspace} onMutate={mutate} />
 
-        <EmployeesEditor workspace={workspace} onMutate={mutate} />
 
         <MatrixEditor workspace={workspace} onSave={(cells) => mutate(() => api.updateMatrix(cells))} />
 
@@ -162,7 +161,7 @@ export function WorkspacePage({ projectId, onBack }: Props) {
   );
 }
 
-function ProjectEditor({ workspace, onSave }: { workspace: Workspace; onSave: (data: Record<string, unknown>) => void }) {
+function ProjectEditor({ workspace, onSave }: { workspace: Workspace; onSave: (data: Partial<Workspace['project']>) => void }) {
   const [draft, setDraft] = useState(workspace.project);
 
   useEffect(() => setDraft(workspace.project), [workspace.project]);
@@ -186,19 +185,59 @@ function ProjectEditor({ workspace, onSave }: { workspace: Workspace; onSave: (d
 
 function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: (action: () => Promise<unknown>) => void }) {
   const [drafts, setDrafts] = useState<ProjectTask[]>(workspace.tasks);
-  const [newTask, setNewTask] = useState<Partial<ProjectTask>>({ name: 'Новая задача', stage: 'analytics', baseHours: 8, complexityLevel: 'L1', isCritical: false, order: workspace.tasks.length + 1 });
 
+  // Задачи редактируются сначала локально, без мгновенной отправки каждой строки на сервер.
+  // Это нужно, чтобы пользователь мог спокойно изменить всю таблицу и сохранить ее одной кнопкой.
   useEffect(() => {
     setDrafts(workspace.tasks);
-    setNewTask(current => ({ ...current, order: workspace.tasks.length + 1 }));
   }, [workspace.tasks]);
 
   function updateDraft(id: string, patch: Partial<ProjectTask>) {
     setDrafts(items => items.map(task => task.id === id ? { ...task, ...patch } : task));
   }
 
+  function addDraftTask() {
+    setDrafts(items => [
+      ...items,
+      {
+        id: `task-new-${Date.now()}`,
+        projectId: workspace.project.id,
+        name: 'Новая задача',
+        stage: 'analytics',
+        baseHours: 8,
+        complexityLevel: 'L1',
+        isCritical: false,
+        order: items.length + 1,
+      },
+    ]);
+  }
+
+  function removeDraftTask(id: string) {
+    setDrafts(items => items.filter(task => task.id !== id));
+  }
+
+  function saveTasksGroup() {
+    onMutate(() => api.replaceProjectTasks(workspace.project.id, drafts));
+  }
+
   return (
     <Section title="Задачи проекта" description="Задачи являются входом расчетной модели: часы, сложность и критичность влияют на бюджет и риск.">
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          onClick={addDraftTask}
+          className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+        >
+          <Plus size={16} /> Добавить задачу
+        </button>
+
+        <button
+          onClick={saveTasksGroup}
+          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
+        >
+          <Save size={16} /> Сохранить задачи
+        </button>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -222,77 +261,10 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
                 <td className="py-2"><input type="checkbox" checked={task.isCritical} onChange={event => updateDraft(task.id, { isCritical: event.target.checked })} /></td>
                 <td className="py-2"><SmallInput type="number" value={task.order} onChange={value => updateDraft(task.id, { order: numberValue(value) })} /></td>
                 <td className="py-2">
-                  <div className="flex gap-2">
-                    <IconButton title="Сохранить" onClick={() => onMutate(() => api.updateTask(task.id, task))} icon={<Save size={15} />} />
-                    <IconButton title="Удалить" onClick={() => onMutate(() => api.deleteTask(task.id))} icon={<Trash2 size={15} />} />
-                  </div>
+                  <IconButton title="Удалить из списка" onClick={() => removeDraftTask(task.id)} icon={<Trash2 size={15} />} />
                 </td>
               </tr>
             ))}
-            <tr className="bg-slate-50">
-              <td className="py-2"><SmallInput value={newTask.name || ''} onChange={value => setNewTask({ ...newTask, name: value })} /></td>
-              <td className="py-2"><SmallSelect value={newTask.stage || 'analytics'} options={stages} onChange={value => setNewTask({ ...newTask, stage: value as ProjectStage })} /></td>
-              <td className="py-2"><SmallInput type="number" value={newTask.baseHours || 0} onChange={value => setNewTask({ ...newTask, baseHours: numberValue(value) })} /></td>
-              <td className="py-2"><SmallSelect value={newTask.complexityLevel || 'L1'} options={complexities} onChange={value => setNewTask({ ...newTask, complexityLevel: value as ComplexityLevel })} /></td>
-              <td className="py-2"><input type="checkbox" checked={Boolean(newTask.isCritical)} onChange={event => setNewTask({ ...newTask, isCritical: event.target.checked })} /></td>
-              <td className="py-2"><SmallInput type="number" value={newTask.order || 1} onChange={value => setNewTask({ ...newTask, order: numberValue(value) })} /></td>
-              <td className="py-2"><IconButton title="Добавить" onClick={() => onMutate(() => api.createTask(workspace.project.id, newTask))} icon={<Plus size={15} />} /></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Section>
-  );
-}
-
-function EmployeesEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: (action: () => Promise<unknown>) => void }) {
-  const [drafts, setDrafts] = useState<Employee[]>(workspace.employees);
-  const [newEmployee, setNewEmployee] = useState<Partial<Employee>>({ name: 'Новый исполнитель', role: 'backend', grade: 'middle', hourRate: 2000, availability: 1 });
-
-  useEffect(() => setDrafts(workspace.employees), [workspace.employees]);
-
-  function updateDraft(id: string, patch: Partial<Employee>) {
-    setDrafts(items => items.map(employee => employee.id === id ? { ...employee, ...patch } : employee));
-  }
-
-  return (
-    <Section title="Исполнители" description="Грейд и ставка исполнителя используются для расчета надежности, трудоемкости и стоимости задач.">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="py-2">Исполнитель</th>
-              <th className="py-2">Роль</th>
-              <th className="py-2">Грейд</th>
-              <th className="py-2">Ставка</th>
-              <th className="py-2">Доступность</th>
-              <th className="py-2">Действия</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {drafts.map(employee => (
-              <tr key={employee.id}>
-                <td className="py-2"><SmallInput value={employee.name} onChange={value => updateDraft(employee.id, { name: value })} /></td>
-                <td className="py-2"><SmallInput value={employee.role} onChange={value => updateDraft(employee.id, { role: value })} /></td>
-                <td className="py-2"><SmallSelect value={employee.grade} options={grades} onChange={value => updateDraft(employee.id, { grade: value as GradeCode })} /></td>
-                <td className="py-2"><SmallInput type="number" value={employee.hourRate} onChange={value => updateDraft(employee.id, { hourRate: numberValue(value) })} /></td>
-                <td className="py-2"><SmallInput type="number" step="0.1" value={employee.availability} onChange={value => updateDraft(employee.id, { availability: numberValue(value) })} /></td>
-                <td className="py-2">
-                  <div className="flex gap-2">
-                    <IconButton title="Сохранить" onClick={() => onMutate(() => api.updateEmployee(employee.id, employee))} icon={<Save size={15} />} />
-                    <IconButton title="Удалить" onClick={() => onMutate(() => api.deleteEmployee(employee.id))} icon={<Trash2 size={15} />} />
-                  </div>
-                </td>
-              </tr>
-            ))}
-            <tr className="bg-slate-50">
-              <td className="py-2"><SmallInput value={newEmployee.name || ''} onChange={value => setNewEmployee({ ...newEmployee, name: value })} /></td>
-              <td className="py-2"><SmallInput value={newEmployee.role || ''} onChange={value => setNewEmployee({ ...newEmployee, role: value })} /></td>
-              <td className="py-2"><SmallSelect value={newEmployee.grade || 'middle'} options={grades} onChange={value => setNewEmployee({ ...newEmployee, grade: value as GradeCode })} /></td>
-              <td className="py-2"><SmallInput type="number" value={newEmployee.hourRate || 0} onChange={value => setNewEmployee({ ...newEmployee, hourRate: numberValue(value) })} /></td>
-              <td className="py-2"><SmallInput type="number" step="0.1" value={newEmployee.availability || 1} onChange={value => setNewEmployee({ ...newEmployee, availability: numberValue(value) })} /></td>
-              <td className="py-2"><IconButton title="Добавить" onClick={() => onMutate(() => api.createEmployee(newEmployee))} icon={<Plus size={15} />} /></td>
-            </tr>
           </tbody>
         </table>
       </div>
