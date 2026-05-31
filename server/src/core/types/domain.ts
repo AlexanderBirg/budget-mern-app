@@ -32,6 +32,8 @@ export interface ProjectTask {
   complexityLevel: ComplexityLevel;
   isCritical: boolean;
   order: number;
+  // Список задач-предшественников. Текущая задача может начаться только после их завершения.
+  dependsOnTaskIds: string[];
 }
 
 export interface Employee {

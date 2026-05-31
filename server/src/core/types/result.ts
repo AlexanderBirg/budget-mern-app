@@ -28,6 +28,19 @@ export interface StageDurationResult {
   durationDays: number;
 }
 
+export interface TaskScheduleItem {
+  taskId: string;
+  taskName: string;
+  stage: ProjectStage;
+  employeeId: string;
+  employeeName: string;
+  startDay: number;
+  endDay: number;
+  durationDays: number;
+  dependsOnTaskIds: string[];
+  isCritical: boolean;
+}
+
 export interface ConstraintCheckResult {
   budgetOk: boolean;
   deadlineOk: boolean;
@@ -42,6 +55,7 @@ export interface ScenarioCalculationResult {
   scenarioName: string;
   taskResults: TaskCalculationResult[];
   stageDurations: StageDurationResult[];
+  schedule: TaskScheduleItem[];
 
   expectedHours: number;
   expectedLaborDays: number;

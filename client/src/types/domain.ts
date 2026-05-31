@@ -22,6 +22,7 @@ export interface ProjectTask {
   complexityLevel: ComplexityLevel;
   isCritical: boolean;
   order: number;
+  dependsOnTaskIds: string[];
 }
 
 export interface Employee {
@@ -84,6 +85,19 @@ export interface ConstraintCheckResult {
   reasons: string[];
 }
 
+export interface TaskScheduleItem {
+  taskId: string;
+  taskName: string;
+  stage: ProjectStage;
+  employeeId: string;
+  employeeName: string;
+  startDay: number;
+  endDay: number;
+  durationDays: number;
+  dependsOnTaskIds: string[];
+  isCritical: boolean;
+}
+
 export interface ScenarioCalculationResult {
   scenarioId: string;
   scenarioName: string;
@@ -101,6 +115,7 @@ export interface ScenarioCalculationResult {
   stabilityIndex: number;
   riskIndex: number;
   constraints: ConstraintCheckResult;
+  schedule: TaskScheduleItem[];
   stageDurations?: Array<{ stage: ProjectStage; expectedHours: number; capacityHoursPerDay: number; durationDays: number }>;
 }
 

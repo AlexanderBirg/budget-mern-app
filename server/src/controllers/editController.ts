@@ -37,6 +37,7 @@ export async function createTask(req: Request, res: Response): Promise<void> {
     complexityLevel: req.body.complexityLevel || 'L1',
     isCritical: Boolean(req.body.isCritical),
     order: Number(req.body.order || 1),
+    dependsOnTaskIds: Array.isArray(req.body.dependsOnTaskIds) ? req.body.dependsOnTaskIds : [],
   });
 
   res.status(201).json(mapTask(task.toObject()));
@@ -83,13 +84,19 @@ export async function replaceProjectTasks(req: Request, res: Response): Promise<
     complexityLevel: task.complexityLevel || 'L1',
     isCritical: Boolean(task.isCritical),
     order: Number(task.order || index + 1),
+    dependsOnTaskIds: Array.isArray(task.dependsOnTaskIds) ? task.dependsOnTaskIds.filter((id: string) => id !== task.id) : [],
   }));
+
+  const actualTaskIds = normalizedTasks.map((task: any) => task._id);
+
+  // Оставляем только зависимости на задачи, которые реально сохранились в проекте.
+  for (const task of normalizedTasks) {
+    task.dependsOnTaskIds = task.dependsOnTaskIds.filter((id: string) => actualTaskIds.includes(id));
+  }
 
   const createdTasks = normalizedTasks.length > 0
     ? await TaskModel.insertMany(normalizedTasks)
     : [];
-
-  const actualTaskIds = normalizedTasks.map((task: any) => task._id);
 
   // Если пользователь удалил задачу из таблицы, удаляем и назначения на нее в сценариях проекта.
   await ScenarioModel.updateMany(

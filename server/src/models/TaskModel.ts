@@ -11,6 +11,8 @@ const TaskSchema = new Schema(
     complexityLevel: { type: String, required: true },
     isCritical: { type: Boolean, required: true },
     order: { type: Number, required: true },
+    // Зависимости нужны для построения диаграммы Ганта и расчета параллельного выполнения.
+    dependsOnTaskIds: { type: [String], default: [] },
   },
   { timestamps: true }
 );

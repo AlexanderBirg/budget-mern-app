@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { api } from '../api/client';
 import { BudgetChart } from '../components/BudgetChart';
 import { ComparisonTable } from '../components/ComparisonTable';
+import { GanttChart } from '../components/GanttChart';
 import { Section } from '../components/Section';
 import { StatCard } from '../components/StatCard';
 import type { ComparisonResult, ComplexityLevel, GradeCode, MatrixCell, ProjectStage, ProjectTask, Scenario, ScenarioAssignment, Workspace } from '../types/domain';
@@ -153,6 +154,13 @@ export function WorkspacePage({ projectId, onBack }: Props) {
                 )}
               </div>
               <BudgetChart result={result} />
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-950">Диаграммы Ганта по сценариям</h2>
+                  <p className="mt-1 text-sm text-slate-500">Диаграммы показывают различия сценариев по календарному расписанию, зависимостям и длительности задач.</p>
+                </div>
+                {result.results.map(item => <GanttChart key={item.scenarioId} result={item} />)}
+              </div>
             </div>
           )}
         </Section>
@@ -208,6 +216,7 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
         complexityLevel: 'L1',
         isCritical: false,
         order: items.length + 1,
+        dependsOnTaskIds: [],
       },
     ]);
   }
@@ -248,6 +257,7 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
               <th className="py-2">Сложность</th>
               <th className="py-2">Крит.</th>
               <th className="py-2">Порядок</th>
+              <th className="py-2">Предшественники</th>
               <th className="py-2">Действия</th>
             </tr>
           </thead>
@@ -260,6 +270,13 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
                 <td className="py-2"><SmallSelect value={task.complexityLevel} options={complexities} onChange={value => updateDraft(task.id, { complexityLevel: value as ComplexityLevel })} /></td>
                 <td className="py-2"><input type="checkbox" checked={task.isCritical} onChange={event => updateDraft(task.id, { isCritical: event.target.checked })} /></td>
                 <td className="py-2"><SmallInput type="number" value={task.order} onChange={value => updateDraft(task.id, { order: numberValue(value) })} /></td>
+                <td className="py-2">
+                  <DependenciesSelect
+                    task={task}
+                    tasks={drafts}
+                    onChange={dependsOnTaskIds => updateDraft(task.id, { dependsOnTaskIds })}
+                  />
+                </td>
                 <td className="py-2">
                   <IconButton title="Удалить из списка" onClick={() => removeDraftTask(task.id)} icon={<Trash2 size={15} />} />
                 </td>
@@ -444,6 +461,39 @@ function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSe
         </div>
       )}
     </Section>
+  );
+}
+
+
+function DependenciesSelect({ task, tasks, onChange }: { task: ProjectTask; tasks: ProjectTask[]; onChange: (ids: string[]) => void }) {
+  const availableTasks = tasks.filter(item => item.id !== task.id);
+  const selectedIds = task.dependsOnTaskIds || [];
+
+  function toggleDependency(taskId: string) {
+    const nextIds = selectedIds.includes(taskId)
+      ? selectedIds.filter(id => id !== taskId)
+      : [...selectedIds, taskId];
+
+    onChange(nextIds);
+  }
+
+  return (
+    <div className="min-w-56 space-y-1 rounded-md border border-slate-200 bg-slate-50 p-2">
+      {availableTasks.length === 0 ? (
+        <span className="text-xs text-slate-400">Нет доступных задач</span>
+      ) : (
+        availableTasks.map(item => (
+          <label key={item.id} className="flex items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(item.id)}
+              onChange={() => toggleDependency(item.id)}
+            />
+            <span className="truncate">{item.name}</span>
+          </label>
+        ))
+      )}
+    </div>
   );
 }
 

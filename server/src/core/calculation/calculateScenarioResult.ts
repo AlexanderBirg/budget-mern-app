@@ -42,11 +42,15 @@ export function calculateScenarioResult(
   const expectedLaborDays = expectedHours / project.workHoursPerDay;
   const expectedBudget = sum(taskResults.map(item => item.cost));
 
-  const { stageDurations, expectedCalendarDays } = calculateScenarioDuration(
+  const { schedule, expectedCalendarDays } = calculateScenarioDuration(
+    tasks,
     taskResults,
     scenario.assignments,
     project.workHoursPerDay
   );
+
+  // Для обратной совместимости и краткой аналитики группируем расписание по этапам.
+  const stageDurations = buildStageDurations(schedule);
 
   const deltaSource = scenario.deltaMode === 'criticalOnly'
     ? taskResults.filter(item => item.isCritical)
@@ -77,6 +81,7 @@ export function calculateScenarioResult(
     scenarioName: scenario.name,
     taskResults,
     stageDurations,
+    schedule,
     expectedHours: round(expectedHours),
     expectedLaborDays: round(expectedLaborDays),
     expectedCalendarDays: round(expectedCalendarDays),
@@ -120,6 +125,24 @@ function validateScenario(project: Project, tasks: ProjectTask[], scenario: Scen
       { missingTaskIds: missingTasks.map(task => task.id) }
     );
   }
+}
+
+
+function buildStageDurations(schedule: ScenarioCalculationResult['schedule']): ScenarioCalculationResult['stageDurations'] {
+  const grouped = new Map<string, { stage: any; expectedHours: number; durationDays: number }>();
+
+  for (const item of schedule) {
+    const current = grouped.get(item.stage) || { stage: item.stage, expectedHours: 0, durationDays: 0 };
+    current.durationDays += item.durationDays;
+    grouped.set(item.stage, current);
+  }
+
+  return Array.from(grouped.values()).map(item => ({
+    stage: item.stage,
+    expectedHours: 0,
+    capacityHoursPerDay: 0,
+    durationDays: round(item.durationDays),
+  }));
 }
 
 function sum(values: number[]): number {

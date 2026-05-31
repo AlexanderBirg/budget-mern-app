@@ -21,6 +21,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L2',
     isCritical: true,
     order: 1,
+    dependsOnTaskIds: [],
   },
   {
     id: 'task-design',
@@ -31,6 +32,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L2',
     isCritical: false,
     order: 2,
+    dependsOnTaskIds: ['task-analytics'],
   },
   {
     id: 'task-frontend',
@@ -41,6 +43,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L3',
     isCritical: true,
     order: 3,
+    dependsOnTaskIds: ['task-design'],
   },
   {
     id: 'task-backend',
@@ -51,6 +54,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L4',
     isCritical: true,
     order: 4,
+    dependsOnTaskIds: ['task-design'],
   },
   {
     id: 'task-integration',
@@ -61,6 +65,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L4',
     isCritical: true,
     order: 5,
+    dependsOnTaskIds: ['task-backend'],
   },
   {
     id: 'task-qa',
@@ -71,6 +76,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L2',
     isCritical: true,
     order: 6,
+    dependsOnTaskIds: ['task-frontend', 'task-integration'],
   },
   {
     id: 'task-deploy',
@@ -81,6 +87,7 @@ export const demoTasks: ProjectTask[] = [
     complexityLevel: 'L2',
     isCritical: false,
     order: 7,
+    dependsOnTaskIds: ['task-qa'],
   },
 ];
 
