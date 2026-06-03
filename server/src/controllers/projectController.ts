@@ -6,6 +6,7 @@ import { RiskMatrixModel } from '../models/RiskMatrixModel.js';
 import { ScenarioModel } from '../models/ScenarioModel.js';
 import { CalculationResultModel } from '../models/CalculationResultModel.js';
 import { compareScenarios } from '../core/index.js';
+import { CalculationError } from '../core/types/errors.js';
 import { mapEmployee, mapMatrixCells, mapProject, mapScenario, mapTask } from '../utils/mappers.js';
 
 // Возвращает список проектов для стартового экрана.
@@ -71,21 +72,36 @@ export async function calculateProject(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const result = compareScenarios(
-    mapProject(projectDoc),
-    taskDocs.map(mapTask),
-    employeeDocs.map(mapEmployee),
-    scenarioDocs.map(mapScenario),
-    mapMatrixCells(matrixDoc.cells)
-  );
+  try {
+    const result = compareScenarios(
+      mapProject(projectDoc),
+      taskDocs.map(mapTask),
+      employeeDocs.map(mapEmployee),
+      scenarioDocs.map(mapScenario),
+      mapMatrixCells(matrixDoc.cells)
+    );
 
-  await CalculationResultModel.create({
-    projectId,
-    calculatedAt: new Date(),
-    recommendedScenarioId: result.recommendedScenarioId,
-    bestAlternativeScenarioId: result.bestAlternativeScenarioId,
-    result,
-  });
+    await CalculationResultModel.create({
+      projectId,
+      calculatedAt: new Date(),
+      recommendedScenarioId: result.recommendedScenarioId,
+      bestAlternativeScenarioId: result.bestAlternativeScenarioId,
+      result,
+    });
 
-  res.json(result);
+    res.json(result);
+  } catch (err) {
+    // Ошибки расчетного ядра не должны валить сервер.
+    // Возвращаем понятный ответ клиенту, чтобы интерфейс мог показать причину.
+    if (err instanceof CalculationError) {
+      res.status(400).json({
+        message: err.message,
+        code: err.code,
+        meta: err.meta,
+      });
+      return;
+    }
+
+    throw err;
+  }
 }

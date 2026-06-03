@@ -98,11 +98,37 @@ export async function replaceProjectTasks(req: Request, res: Response): Promise<
     ? await TaskModel.insertMany(normalizedTasks)
     : [];
 
-  // Если пользователь удалил задачу из таблицы, удаляем и назначения на нее в сценариях проекта.
-  await ScenarioModel.updateMany(
-    { projectId },
-    { $pull: { assignments: { taskId: { $nin: actualTaskIds } } } }
-  );
+  // После изменения списка задач нужно синхронизировать сценарии.
+  // Иначе новая задача появится в проекте, но в старых сценариях не будет назначения,
+  // и расчетное ядро справедливо остановит расчет как некорректный.
+  const defaultEmployee = await EmployeeModel.findOne().sort({ role: 1, grade: 1 }).lean();
+  const scenarios = await ScenarioModel.find({ projectId }).lean();
+
+  await Promise.all(scenarios.map(async (scenario: any) => {
+    // Сначала удаляем назначения на задачи, которых больше нет в проекте.
+    const nextAssignments = (scenario.assignments || []).filter((assignment: any) =>
+      actualTaskIds.includes(assignment.taskId)
+    );
+
+    const assignedTaskIds = new Set(nextAssignments.map((assignment: any) => assignment.taskId));
+
+    // Затем добавляем назначения для новых задач.
+    // В качестве безопасного значения по умолчанию берем первого исполнителя из справочника.
+    // Пользователь потом может заменить его в редакторе сценария.
+    if (defaultEmployee) {
+      for (const taskId of actualTaskIds) {
+        if (!assignedTaskIds.has(taskId)) {
+          nextAssignments.push({
+            taskId,
+            employeeId: defaultEmployee._id,
+            allocation: 1,
+          });
+        }
+      }
+    }
+
+    await ScenarioModel.findByIdAndUpdate(scenario._id, { assignments: nextAssignments });
+  }));
 
   res.json(createdTasks.map((task: any) => mapTask(task.toObject())));
 }
