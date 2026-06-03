@@ -41,6 +41,19 @@ export interface TaskScheduleItem {
   isCritical: boolean;
 }
 
+export type ConstraintDiagnosticCode = 'budget' | 'deadline' | 'stability' | 'assignmentRisk';
+
+export interface ConstraintDiagnostic {
+  code: ConstraintDiagnosticCode;
+  label: string;
+  ok: boolean;
+  actual: number;
+  limit: number;
+  difference: number;
+  unit: 'rub' | 'days' | 'index' | 'items';
+  message: string;
+}
+
 export interface ConstraintCheckResult {
   budgetOk: boolean;
   deadlineOk: boolean;
@@ -48,6 +61,7 @@ export interface ConstraintCheckResult {
   assignmentRiskOk: boolean;
   isFeasible: boolean;
   reasons: string[];
+  diagnostics: ConstraintDiagnostic[];
 }
 
 export interface ScenarioCalculationResult {

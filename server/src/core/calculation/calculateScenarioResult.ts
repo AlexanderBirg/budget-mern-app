@@ -65,7 +65,9 @@ export function calculateScenarioResult(
   const strictReliability = probabilities.reduce((product, probability) => product * probability, 1);
   const stabilityIndex = averageReliability * scenario.teamFitCoefficient;
   const riskIndex = 1 - stabilityIndex;
-  const hasForbiddenAssignments = taskResults.some(item => !item.isAssignmentAllowed);
+  const forbiddenAssignmentMessages = taskResults
+    .filter(item => !item.isAssignmentAllowed)
+    .map(item => `${item.taskName} → ${item.employeeName}, p=${round(item.probability, 4)} ниже минимума ${project.minAllowedProbability}`);
 
   const constraints = checkConstraints({
     project,
@@ -73,7 +75,7 @@ export function calculateScenarioResult(
     expectedCalendarDays,
     deltaDays,
     stabilityIndex,
-    hasForbiddenAssignments,
+    forbiddenAssignmentMessages,
   });
 
   return {

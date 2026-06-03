@@ -7,9 +7,7 @@
     "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "seed": "npm run seed --prefix server",
-    "build": "npm run build --prefix server && npm run build --prefix client",
-    "backup": "mongodump --db budget_app --out ./backup",
-    "restore": "mongorestore --db budget_app ./backup/budget_app --drop"
+    "build": "npm run build --prefix server && npm run build --prefix client"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
