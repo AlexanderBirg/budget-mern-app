@@ -13,6 +13,27 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
 }
 
+const stageRoleMap: Record<string, string[]> = {
+  analytics: ['analytics', 'analyst'],
+  design: ['design', 'designer'],
+  frontend: ['frontend'],
+  backend: ['backend'],
+  integration: ['integration', 'backend'],
+  qa: ['qa', 'test', 'tester'],
+  deployment: ['deployment', 'devops'],
+};
+
+function normalizeRole(role: string): string {
+  return role.trim().toLowerCase();
+}
+
+// При автосинхронизации сценариев подбираем исполнителя по этапу задачи.
+// Это нужно, чтобы новая задача аналитики не назначалась, например, frontend-разработчику.
+function findDefaultEmployeeForTask(task: { stage: string }, employees: any[]): any | null {
+  const allowedRoles = stageRoleMap[task.stage] || [];
+  return employees.find(employee => allowedRoles.includes(normalizeRole(employee.role || ''))) || null;
+}
+
 export async function updateProject(req: Request, res: Response): Promise<void> {
   const project = await ProjectModel.findByIdAndUpdate(req.params.projectId, req.body, { new: true, runValidators: true }).lean();
 
@@ -101,7 +122,7 @@ export async function replaceProjectTasks(req: Request, res: Response): Promise<
   // После изменения списка задач нужно синхронизировать сценарии.
   // Иначе новая задача появится в проекте, но в старых сценариях не будет назначения,
   // и расчетное ядро справедливо остановит расчет как некорректный.
-  const defaultEmployee = await EmployeeModel.findOne().sort({ role: 1, grade: 1 }).lean();
+  const employees = await EmployeeModel.find().sort({ role: 1, grade: 1 }).lean();
   const scenarios = await ScenarioModel.find({ projectId }).lean();
 
   await Promise.all(scenarios.map(async (scenario: any) => {
@@ -113,13 +134,15 @@ export async function replaceProjectTasks(req: Request, res: Response): Promise<
     const assignedTaskIds = new Set(nextAssignments.map((assignment: any) => assignment.taskId));
 
     // Затем добавляем назначения для новых задач.
-    // В качестве безопасного значения по умолчанию берем первого исполнителя из справочника.
-    // Пользователь потом может заменить его в редакторе сценария.
-    if (defaultEmployee) {
-      for (const taskId of actualTaskIds) {
-        if (!assignedTaskIds.has(taskId)) {
+    // Исполнителя по умолчанию подбираем по этапу задачи: analytics -> аналитик,
+    // frontend -> frontend-разработчик, deployment -> DevOps и т.д.
+    for (const task of normalizedTasks) {
+      if (!assignedTaskIds.has(task._id)) {
+        const defaultEmployee = findDefaultEmployeeForTask(task, employees);
+
+        if (defaultEmployee) {
           nextAssignments.push({
-            taskId,
+            taskId: task._id,
             employeeId: defaultEmployee._id,
             allocation: 1,
           });

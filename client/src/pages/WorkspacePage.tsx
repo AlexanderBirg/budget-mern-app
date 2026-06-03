@@ -7,7 +7,7 @@ import { ComparisonTable } from '../components/ComparisonTable';
 import { GanttChart } from '../components/GanttChart';
 import { Section } from '../components/Section';
 import { StatCard } from '../components/StatCard';
-import type { ComparisonResult, ComplexityLevel, GradeCode, MatrixCell, ProjectStage, ProjectTask, Scenario, ScenarioAssignment, Workspace } from '../types/domain';
+import type { ComparisonResult, ComplexityLevel, Employee, GradeCode, MatrixCell, ProjectStage, ProjectTask, Scenario, ScenarioAssignment, Workspace } from '../types/domain';
 
 interface Props {
   projectId: string;
@@ -17,6 +17,31 @@ interface Props {
 const stages: ProjectStage[] = ['analytics', 'design', 'frontend', 'backend', 'integration', 'qa', 'deployment'];
 const complexities: ComplexityLevel[] = ['L1', 'L2', 'L3', 'L4'];
 const grades: GradeCode[] = ['intern', 'junior', 'middle', 'senior'];
+
+const stageRoleMap: Record<ProjectStage, string[]> = {
+  analytics: ['analytics', 'analyst'],
+  design: ['design', 'designer'],
+  frontend: ['frontend'],
+  backend: ['backend'],
+  integration: ['integration', 'backend'],
+  qa: ['qa', 'test', 'tester'],
+  deployment: ['deployment', 'devops'],
+};
+
+function normalizeRole(role: string): string {
+  return role.trim().toLowerCase();
+}
+
+// Исполнитель подбирается по этапу задачи.
+// Например, для аналитики показываем только аналитиков, для QA — только тестировщиков.
+function getAllowedEmployeesForTask(task: ProjectTask, employees: Employee[]): Employee[] {
+  const allowedRoles = stageRoleMap[task.stage] || [];
+  return employees.filter(employee => allowedRoles.includes(normalizeRole(employee.role)));
+}
+
+function getRoleHint(stage: ProjectStage): string {
+  return (stageRoleMap[stage] || []).join(', ');
+}
 
 function money(value: number): string {
   return new Intl.NumberFormat('ru-RU').format(Math.round(value)) + ' ₽';
@@ -361,18 +386,25 @@ function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSe
   useEffect(() => setDraft(selectedScenario), [selectedScenario]);
 
   function buildDefaultAssignments(): ScenarioAssignment[] {
-    const firstEmployee = workspace.employees[0];
-    if (!firstEmployee) return [];
-    return workspace.tasks.map(task => ({ taskId: task.id, employeeId: firstEmployee.id, allocation: 1 }));
+    return workspace.tasks
+      .map(task => {
+        const firstAllowedEmployee = getAllowedEmployeesForTask(task, workspace.employees)[0];
+        if (!firstAllowedEmployee) return null;
+        return { taskId: task.id, employeeId: firstAllowedEmployee.id, allocation: 1 };
+      })
+      .filter((assignment): assignment is ScenarioAssignment => Boolean(assignment));
   }
 
   function updateAssignment(taskId: string, patch: Partial<ScenarioAssignment>) {
     if (!draft) return;
 
     const exists = draft.assignments.some(assignment => assignment.taskId === taskId);
+    const task = workspace.tasks.find(item => item.id === taskId);
+    const firstAllowedEmployee = task ? getAllowedEmployeesForTask(task, workspace.employees)[0] : null;
+
     const nextAssignments = exists
       ? draft.assignments.map(assignment => assignment.taskId === taskId ? { ...assignment, ...patch } : assignment)
-      : [...draft.assignments, { taskId, employeeId: workspace.employees[0]?.id || '', allocation: 1, ...patch }];
+      : [...draft.assignments, { taskId, employeeId: firstAllowedEmployee?.id || '', allocation: 1, ...patch }];
 
     setDraft({ ...draft, assignments: nextAssignments });
   }
@@ -430,15 +462,28 @@ function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSe
               <tbody className="divide-y divide-slate-100">
                 {workspace.tasks.map(task => {
                   const assignment = draft.assignments.find(item => item.taskId === task.id);
+                  const allowedEmployees = getAllowedEmployeesForTask(task, workspace.employees);
+                  const selectedEmployeeAllowed = allowedEmployees.some(employee => employee.id === assignment?.employeeId);
+
                   return (
                     <tr key={task.id}>
                       <td className="py-2 font-medium text-slate-900">{task.name}</td>
                       <td className="py-2 text-slate-600">{task.complexityLevel}</td>
                       <td className="py-2">
-                        <select className="w-full rounded-md border border-slate-300 bg-white px-2 py-1" value={assignment?.employeeId || ''} onChange={event => updateAssignment(task.id, { employeeId: event.target.value })}>
+                        <select
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1"
+                          value={selectedEmployeeAllowed ? assignment?.employeeId || '' : ''}
+                          onChange={event => updateAssignment(task.id, { employeeId: event.target.value })}
+                        >
                           <option value="">Не назначено</option>
-                          {workspace.employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name} / {employee.grade} / {money(employee.hourRate)}</option>)}
+                          {allowedEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.name} / {employee.grade} / {money(employee.hourRate)}</option>)}
                         </select>
+                        {allowedEmployees.length === 0 && (
+                          <p className="mt-1 text-xs text-red-700">Для этапа {task.stage} нет исполнителей с ролью: {getRoleHint(task.stage)}.</p>
+                        )}
+                        {assignment?.employeeId && !selectedEmployeeAllowed && allowedEmployees.length > 0 && (
+                          <p className="mt-1 text-xs text-amber-700">Текущее назначение не соответствует этапу задачи. Выберите исполнителя из допустимого списка.</p>
+                        )}
                       </td>
                       <td className="py-2">
                         <SmallInput type="number" step="0.1" value={assignment?.allocation || 1} onChange={value => updateAssignment(task.id, { allocation: numberValue(value) })} />
