@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Calculator, GitBranch, GripVertical, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { api } from '../api/client';
 import { BudgetChart } from '../components/BudgetChart';
@@ -225,6 +225,20 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
     setDrafts(workspace.tasks);
   }, [workspace.tasks]);
 
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [manualColumnCount, setManualColumnCount] = useState(0);
+
+  const orderedTasks = useMemo(() => sortTasksByOrder(drafts), [drafts]);
+  const planColumns = useMemo(() => buildPlanColumns(drafts), [drafts]);
+  const visiblePlanColumns = useMemo(() => {
+    const count = Math.max(planColumns.length, manualColumnCount, 1);
+    return Array.from({ length: count }, (_, index) => planColumns[index] || []);
+  }, [planColumns, manualColumnCount]);
+
+  useEffect(() => {
+    setManualColumnCount(current => Math.max(current, planColumns.length));
+  }, [planColumns.length]);
+
   function updateDraft(id: string, patch: Partial<ProjectTask>) {
     setDrafts(items => items.map(task => task.id === id ? { ...task, ...patch } : task));
   }
@@ -247,15 +261,215 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
   }
 
   function removeDraftTask(id: string) {
-    setDrafts(items => items.filter(task => task.id !== id));
+    setDrafts(items => items
+      .filter(task => task.id !== id)
+      .map((task, index) => ({
+        ...task,
+        order: index + 1,
+        dependsOnTaskIds: (task.dependsOnTaskIds || []).filter(taskId => taskId !== id),
+      }))
+    );
   }
 
   function saveTasksGroup() {
     onMutate(() => api.replaceProjectTasks(workspace.project.id, drafts));
   }
 
+  function moveTask(taskId: string, direction: 'up' | 'down') {
+    setDrafts(items => {
+      const sorted = sortTasksByOrder(items);
+      const index = sorted.findIndex(task => task.id === taskId);
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+      if (index < 0 || targetIndex < 0 || targetIndex >= sorted.length) return items;
+
+      const next = [...sorted];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+
+      return next.map((task, orderIndex) => ({ ...task, order: orderIndex + 1 }));
+    });
+  }
+
+
+  function addPlanColumn() {
+    setManualColumnCount(current => Math.max(current, visiblePlanColumns.length) + 1);
+  }
+
+  function removeLastPlanColumn() {
+    setManualColumnCount(current => {
+      const nextCount = Math.max(1, Math.max(current, visiblePlanColumns.length) - 1);
+      const lastColumn = visiblePlanColumns[nextCount];
+      if (lastColumn && lastColumn.length > 0) return current;
+      return nextCount;
+    });
+  }
+
+  function moveTaskToColumn(taskId: string, targetColumnIndex: number) {
+    setDrafts(items => moveTaskToPlanColumn(items, taskId, targetColumnIndex));
+  }
+
+  function applySequentialPlan() {
+    setDrafts(items => {
+      const sorted = sortTasksByOrder(items);
+      return sorted.map((task, index) => ({
+        ...task,
+        order: index + 1,
+        dependsOnTaskIds: index === 0 ? [] : [sorted[index - 1].id],
+      }));
+    });
+  }
+
+  function applyMaxParallelPlan() {
+    setDrafts(items => items.map(task => ({ ...task, dependsOnTaskIds: [] })));
+  }
+
+  function applyAcademicWebPlan() {
+    setDrafts(items => {
+      const sorted = sortTasksByOrder(items);
+      const byStage = (stage: ProjectStage) => sorted.filter(task => task.stage === stage);
+      const lastOf = (stage: ProjectStage) => {
+        const stageTasks = byStage(stage);
+        return stageTasks[stageTasks.length - 1]?.id;
+      };
+      const idsOf = (stage: ProjectStage) => byStage(stage).map(task => task.id);
+
+      const analyticsLast = lastOf('analytics');
+      const designLast = lastOf('design');
+      const developmentIds = [...idsOf('frontend'), ...idsOf('backend'), ...idsOf('integration')];
+      const developmentDeps = [designLast || analyticsLast].filter(Boolean) as string[];
+      const qaDeps = developmentIds.length > 0 ? developmentIds : [designLast || analyticsLast].filter(Boolean) as string[];
+      const qaIds = idsOf('qa');
+      const deploymentDeps = qaIds.length > 0 ? qaIds : qaDeps;
+
+      return sorted.map((task, index) => {
+        let dependsOnTaskIds: string[] = [];
+
+        if (task.stage === 'analytics') {
+          // Если аналитических задач несколько, они идут последовательно в рамках аналитики.
+          const previousAnalytics = byStage('analytics').find((item, itemIndex, list) => list[itemIndex + 1]?.id === task.id);
+          dependsOnTaskIds = previousAnalytics ? [previousAnalytics.id] : [];
+        }
+
+        if (task.stage === 'design') {
+          const previousDesign = byStage('design').find((item, itemIndex, list) => list[itemIndex + 1]?.id === task.id);
+          dependsOnTaskIds = previousDesign ? [previousDesign.id] : [analyticsLast].filter(Boolean) as string[];
+        }
+
+        if (['frontend', 'backend', 'integration'].includes(task.stage)) {
+          dependsOnTaskIds = developmentDeps;
+        }
+
+        if (task.stage === 'qa') {
+          const previousQa = byStage('qa').find((item, itemIndex, list) => list[itemIndex + 1]?.id === task.id);
+          dependsOnTaskIds = previousQa ? [previousQa.id] : qaDeps;
+        }
+
+        if (task.stage === 'deployment') {
+          const previousDeploy = byStage('deployment').find((item, itemIndex, list) => list[itemIndex + 1]?.id === task.id);
+          dependsOnTaskIds = previousDeploy ? [previousDeploy.id] : deploymentDeps;
+        }
+
+        return { ...task, order: index + 1, dependsOnTaskIds: dependsOnTaskIds.filter(id => id !== task.id) };
+      });
+    });
+  }
+
   return (
-    <Section title="Задачи проекта" description="Задачи являются входом расчетной модели: часы, сложность и критичность влияют на бюджет и риск.">
+    <Section title="Задачи проекта" description="Задачи являются входом расчетной модели: часы, сложность, критичность и зависимости влияют на бюджет, риск и календарный план.">
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3 flex items-start gap-2">
+          <GitBranch className="mt-0.5 text-slate-500" size={18} />
+          <div>
+            <h3 className="font-medium text-slate-900">Порядок и параллельность работ</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Поле «После каких задач» задает предшественников. Если у двух задач один и тот же предшественник, они могут стартовать параллельно после его завершения. Если предшественников нет, задача может начаться сразу.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button onClick={applyAcademicWebPlan} className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700">
+            Стандартный ИТ-поток
+          </button>
+          <button onClick={applySequentialPlan} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-white">
+            Все последовательно
+          </button>
+          <button onClick={applyMaxParallelPlan} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-white">
+            Максимум параллельности
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 overflow-x-auto rounded-lg border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-medium text-slate-900">Drag-and-drop планировщик зависимостей</h3>
+            <p className="text-sm text-slate-500">
+              Перетащите задачу в нужный шаг. Задачи в одной колонке считаются параллельными, а задачи следующего шага автоматически зависят от задач предыдущего шага.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addPlanColumn} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              Добавить шаг
+            </button>
+            <button onClick={removeLastPlanColumn} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              Убрать пустой шаг
+            </button>
+          </div>
+        </div>
+
+        <div className="flex min-w-max gap-4">
+          {visiblePlanColumns.map((column, index) => (
+            <div
+              key={index}
+              onDragOver={event => event.preventDefault()}
+              onDrop={() => {
+                if (!draggedTaskId) return;
+                moveTaskToColumn(draggedTaskId, index);
+                setDraggedTaskId(null);
+              }}
+              className={`w-72 shrink-0 rounded-md border p-3 transition ${draggedTaskId ? 'border-slate-400 bg-slate-100' : 'border-slate-200 bg-slate-50'}`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Шаг {index + 1}</div>
+                <div className="text-xs text-slate-400">{column.length} задач</div>
+              </div>
+
+              <div className="min-h-24 space-y-2">
+                {column.length === 0 && (
+                  <div className="rounded-md border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-400">
+                    Перетащите задачу сюда
+                  </div>
+                )}
+
+                {column.map(task => (
+                  <div
+                    key={task.id}
+                    draggable
+                    onDragStart={() => setDraggedTaskId(task.id)}
+                    onDragEnd={() => setDraggedTaskId(null)}
+                    className="cursor-grab rounded-md border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-400 active:cursor-grabbing"
+                  >
+                    <div className="flex items-start gap-2">
+                      <GripVertical className="mt-0.5 shrink-0 text-slate-400" size={16} />
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{task.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">{task.stage}, {task.baseHours} ч., {task.complexityLevel}</div>
+                        {(task.dependsOnTaskIds || []).length > 0 && (
+                          <div className="mt-2 text-xs text-slate-500">
+                            После: {(task.dependsOnTaskIds || []).map(id => getTaskName(drafts, id)).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="mb-4 flex flex-wrap gap-2">
         <button
           onClick={addDraftTask}
@@ -276,27 +490,33 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
+              <th className="py-2">Порядок</th>
               <th className="py-2">Задача</th>
               <th className="py-2">Этап</th>
               <th className="py-2">Часы</th>
               <th className="py-2">Сложность</th>
               <th className="py-2">Крит.</th>
-              <th className="py-2">Порядок</th>
-              <th className="py-2">Предшественники</th>
+              <th className="py-2">После каких задач</th>
               <th className="py-2">Действия</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {drafts.map(task => (
+            {orderedTasks.map(task => (
               <tr key={task.id}>
+                <td className="py-2">
+                  <div className="flex items-center gap-1">
+                    <span className="w-7 text-center text-slate-500">{task.order}</span>
+                    <IconButton title="Выше" onClick={() => moveTask(task.id, 'up')} icon={<ArrowUp size={14} />} />
+                    <IconButton title="Ниже" onClick={() => moveTask(task.id, 'down')} icon={<ArrowDown size={14} />} />
+                  </div>
+                </td>
                 <td className="py-2"><SmallInput value={task.name} onChange={value => updateDraft(task.id, { name: value })} /></td>
                 <td className="py-2"><SmallSelect value={task.stage} options={stages} onChange={value => updateDraft(task.id, { stage: value as ProjectStage })} /></td>
                 <td className="py-2"><SmallInput type="number" value={task.baseHours} onChange={value => updateDraft(task.id, { baseHours: numberValue(value) })} /></td>
                 <td className="py-2"><SmallSelect value={task.complexityLevel} options={complexities} onChange={value => updateDraft(task.id, { complexityLevel: value as ComplexityLevel })} /></td>
                 <td className="py-2"><input type="checkbox" checked={task.isCritical} onChange={event => updateDraft(task.id, { isCritical: event.target.checked })} /></td>
-                <td className="py-2"><SmallInput type="number" value={task.order} onChange={value => updateDraft(task.id, { order: numberValue(value) })} /></td>
                 <td className="py-2">
-                  <DependenciesSelect
+                  <PredecessorPicker
                     task={task}
                     tasks={drafts}
                     onChange={dependsOnTaskIds => updateDraft(task.id, { dependsOnTaskIds })}
@@ -510,33 +730,159 @@ function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSe
 }
 
 
-function DependenciesSelect({ task, tasks, onChange }: { task: ProjectTask; tasks: ProjectTask[]; onChange: (ids: string[]) => void }) {
-  const availableTasks = tasks.filter(item => item.id !== task.id);
-  const selectedIds = task.dependsOnTaskIds || [];
+function sortTasksByOrder(tasks: ProjectTask[]): ProjectTask[] {
+  return [...tasks].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
 
-  function toggleDependency(taskId: string) {
-    const nextIds = selectedIds.includes(taskId)
-      ? selectedIds.filter(id => id !== taskId)
-      : [...selectedIds, taskId];
+function getTaskName(tasks: ProjectTask[], taskId: string): string {
+  return tasks.find(task => task.id === taskId)?.name || 'Задача удалена';
+}
 
-    onChange(nextIds);
+function taskDependsOn(tasks: ProjectTask[], startTaskId: string, targetTaskId: string, visited = new Set<string>()): boolean {
+  if (visited.has(startTaskId)) return false;
+  visited.add(startTaskId);
+
+  const task = tasks.find(item => item.id === startTaskId);
+  if (!task) return false;
+
+  const dependencies = task.dependsOnTaskIds || [];
+  if (dependencies.includes(targetTaskId)) return true;
+
+  return dependencies.some(dependencyId => taskDependsOn(tasks, dependencyId, targetTaskId, visited));
+}
+
+function getAvailablePredecessors(task: ProjectTask, tasks: ProjectTask[]): ProjectTask[] {
+  return sortTasksByOrder(tasks).filter(candidate => {
+    if (candidate.id === task.id) return false;
+
+    // Запрещаем выбрать предшественником задачу, которая сама зависит от текущей.
+    // Это защищает пользователя от циклов вида A после B, а B после A.
+    return !taskDependsOn(tasks, candidate.id, task.id);
+  });
+}
+
+function buildPlanColumns(tasks: ProjectTask[]): ProjectTask[][] {
+  const sorted = sortTasksByOrder(tasks);
+  const levelByTask = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  function getLevel(taskId: string): number {
+    if (levelByTask.has(taskId)) return levelByTask.get(taskId) || 0;
+    if (visiting.has(taskId)) return 0;
+
+    visiting.add(taskId);
+    const task = sorted.find(item => item.id === taskId);
+    const dependencies = (task?.dependsOnTaskIds || []).filter(id => sorted.some(item => item.id === id));
+    const level = dependencies.length === 0 ? 0 : Math.max(...dependencies.map(getLevel)) + 1;
+    visiting.delete(taskId);
+    levelByTask.set(taskId, level);
+    return level;
+  }
+
+  sorted.forEach(task => getLevel(task.id));
+
+  const columns: ProjectTask[][] = [];
+  sorted.forEach(task => {
+    const level = levelByTask.get(task.id) || 0;
+    if (!columns[level]) columns[level] = [];
+    columns[level].push(task);
+  });
+
+  return columns.length > 0 ? columns : [[]];
+}
+
+
+function moveTaskToPlanColumn(tasks: ProjectTask[], taskId: string, targetColumnIndex: number): ProjectTask[] {
+  const sorted = sortTasksByOrder(tasks);
+  const columns = buildPlanColumns(sorted).map(column => [...column]);
+
+  while (columns.length <= targetColumnIndex) columns.push([]);
+
+  const movedTask = sorted.find(task => task.id === taskId);
+  if (!movedTask) return tasks;
+
+  const nextColumns = columns.map(column => column.filter(task => task.id !== taskId));
+  nextColumns[targetColumnIndex] = [...(nextColumns[targetColumnIndex] || []), movedTask];
+
+  // При переносе в колонку задача получает зависимости от задач предыдущей колонки.
+  // Так пользователь управляет параллельностью без ручного выбора каждого предшественника.
+  const previousColumn = targetColumnIndex > 0 ? nextColumns[targetColumnIndex - 1] || [] : [];
+  const safeDependencies = previousColumn
+    .filter(task => task.id !== taskId)
+    .filter(task => !taskDependsOn(sorted, task.id, taskId))
+    .map(task => task.id);
+
+  const flattened = nextColumns.flat();
+  const orderById = new Map(flattened.map((task, index) => [task.id, index + 1]));
+
+  return sorted.map(task => {
+    if (task.id === taskId) {
+      return {
+        ...task,
+        order: orderById.get(task.id) || task.order,
+        dependsOnTaskIds: safeDependencies,
+      };
+    }
+
+    return {
+      ...task,
+      order: orderById.get(task.id) || task.order,
+    };
+  });
+}
+
+function PredecessorPicker({ task, tasks, onChange }: { task: ProjectTask; tasks: ProjectTask[]; onChange: (ids: string[]) => void }) {
+  const availableTasks = getAvailablePredecessors(task, tasks);
+  const selectedIds = (task.dependsOnTaskIds || []).filter(id => tasks.some(item => item.id === id));
+  const unselectedTasks = availableTasks.filter(item => !selectedIds.includes(item.id));
+
+  function addDependency(taskId: string) {
+    if (!taskId || selectedIds.includes(taskId)) return;
+    onChange([...selectedIds, taskId]);
+  }
+
+  function removeDependency(taskId: string) {
+    onChange(selectedIds.filter(id => id !== taskId));
+  }
+
+  function clearDependencies() {
+    onChange([]);
   }
 
   return (
-    <div className="min-w-56 space-y-1 rounded-md border border-slate-200 bg-slate-50 p-2">
-      {availableTasks.length === 0 ? (
-        <span className="text-xs text-slate-400">Нет доступных задач</span>
+    <div className="min-w-72 space-y-2">
+      <select
+        value=""
+        onChange={event => addDependency(event.target.value)}
+        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-slate-500"
+      >
+        <option value="">Добавить предшественника...</option>
+        {unselectedTasks.map(item => (
+          <option key={item.id} value={item.id}>{item.order}. {item.name}</option>
+        ))}
+      </select>
+
+      {selectedIds.length === 0 ? (
+        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-2 text-xs text-slate-500">
+          Стартует без предшественников
+        </div>
       ) : (
-        availableTasks.map(item => (
-          <label key={item.id} className="flex items-center gap-2 text-xs text-slate-700">
-            <input
-              type="checkbox"
-              checked={selectedIds.includes(item.id)}
-              onChange={() => toggleDependency(item.id)}
-            />
-            <span className="truncate">{item.name}</span>
-          </label>
-        ))
+        <div className="flex flex-wrap gap-1">
+          {selectedIds.map(id => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => removeDependency(id)}
+              className="rounded-full border border-slate-300 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-red-50 hover:text-red-700"
+              title="Нажмите, чтобы убрать зависимость"
+            >
+              после: {getTaskName(tasks, id)} ×
+            </button>
+          ))}
+          <button type="button" onClick={clearDependencies} className="rounded-full px-2 py-1 text-xs text-slate-500 hover:text-slate-900">
+            очистить
+          </button>
+        </div>
       )}
     </div>
   );
