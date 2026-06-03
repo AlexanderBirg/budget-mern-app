@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"projectId":{"$numberInt":"1"}},"name":"projectId_1","background":true}],"uuid":"cb1571d025ac4fe89c6412d2f9b3830f","collectionName":"scenarios","type":"collection"}
