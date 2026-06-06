@@ -5,7 +5,7 @@ import { EmployeeModel } from '../models/EmployeeModel.js';
 import { RiskMatrixModel } from '../models/RiskMatrixModel.js';
 import { ScenarioModel } from '../models/ScenarioModel.js';
 import { CalculationResultModel } from '../models/CalculationResultModel.js';
-import { compareScenarios } from '../core/index.js';
+import { compareScenarios, optimizeScenarioAssignments } from '../core/index.js';
 import { CalculationError } from '../core/types/errors.js';
 import { mapEmployee, mapMatrixCells, mapProject, mapScenario, mapTask } from '../utils/mappers.js';
 
@@ -93,6 +93,87 @@ export async function calculateProject(req: Request, res: Response): Promise<voi
   } catch (err) {
     // Ошибки расчетного ядра не должны валить сервер.
     // Возвращаем понятный ответ клиенту, чтобы интерфейс мог показать причину.
+    if (err instanceof CalculationError) {
+      res.status(400).json({
+        message: err.message,
+        code: err.code,
+        meta: err.meta,
+      });
+      return;
+    }
+
+    throw err;
+  }
+}
+
+
+// Создает автоматически подобранный сценарий команды на основе генетического алгоритма.
+// Алгоритм генерирует множество вариантов назначений, оценивает их через уже существующее расчетное ядро
+// и сохраняет лучший найденный вариант как новый сценарий проекта.
+export async function optimizeProjectScenario(req: Request, res: Response): Promise<void> {
+  const { projectId } = req.params;
+
+  const [projectDoc, taskDocs, employeeDocs, matrixDoc, scenarioDocs] = await Promise.all([
+    ProjectModel.findById(projectId).lean(),
+    TaskModel.find({ projectId }).sort({ order: 1 }).lean(),
+    EmployeeModel.find().lean(),
+    RiskMatrixModel.findOne({ isDefault: true }).lean(),
+    ScenarioModel.find({ projectId }).lean(),
+  ]);
+
+  if (!projectDoc) {
+    res.status(404).json({ message: 'Проект не найден' });
+    return;
+  }
+
+  if (!matrixDoc) {
+    res.status(400).json({ message: 'Не найдена матрица риска по умолчанию' });
+    return;
+  }
+
+  try {
+    const project = mapProject(projectDoc);
+    const tasks = taskDocs.map(mapTask);
+    const employees = employeeDocs.map(mapEmployee);
+    const matrix = mapMatrixCells(matrixDoc.cells);
+
+    const optimization = optimizeScenarioAssignments(project, tasks, employees, matrix, {
+      populationSize: req.body.populationSize,
+      generations: req.body.generations,
+      mutationRate: req.body.mutationRate,
+      teamFitCoefficient: req.body.teamFitCoefficient,
+      deltaMode: req.body.deltaMode,
+      scenarioName: req.body.scenarioName,
+    });
+
+    const createdScenario = await ScenarioModel.create({
+      _id: optimization.scenario.id,
+      projectId,
+      name: optimization.scenario.name,
+      description: optimization.scenario.description,
+      teamFitCoefficient: optimization.scenario.teamFitCoefficient,
+      deltaMode: optimization.scenario.deltaMode,
+      assignments: optimization.scenario.assignments,
+    });
+
+    const scenarios = [...scenarioDocs.map(mapScenario), mapScenario(createdScenario.toObject())];
+    const comparison = compareScenarios(project, tasks, employees, scenarios, matrix);
+
+    await CalculationResultModel.create({
+      projectId,
+      calculatedAt: new Date(),
+      recommendedScenarioId: comparison.recommendedScenarioId,
+      bestAlternativeScenarioId: comparison.bestAlternativeScenarioId,
+      result: comparison,
+    });
+
+    res.status(201).json({
+      scenario: mapScenario(createdScenario.toObject()),
+      result: optimization.result,
+      comparison,
+      optimization: optimization.meta,
+    });
+  } catch (err) {
     if (err instanceof CalculationError) {
       res.status(400).json({
         message: err.message,

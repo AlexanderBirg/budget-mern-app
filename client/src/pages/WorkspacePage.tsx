@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Calculator, GitBranch, GripVertical, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Calculator, GitBranch, GripVertical, Plus, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { api } from '../api/client';
 import { BudgetChart } from '../components/BudgetChart';
@@ -59,6 +59,8 @@ export function WorkspacePage({ projectId, onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [calculating, setCalculating] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizationNote, setOptimizationNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
 
@@ -99,6 +101,36 @@ export function WorkspacePage({ projectId, onBack }: Props) {
     }
   }
 
+
+
+  async function handleOptimize() {
+    setOptimizing(true);
+    setError(null);
+    setOptimizationNote(null);
+
+    try {
+      const response = await api.optimizeProject(projectId, {
+        populationSize: 48,
+        generations: 70,
+        mutationRate: 0.14,
+        teamFitCoefficient: 0.88,
+        deltaMode: 'criticalOnly',
+      });
+
+      setResult(response.comparison);
+      setSelectedScenarioId(response.scenario.id);
+      setOptimizationNote(
+        `Создан сценарий «${response.scenario.name}». Проверено вариантов: ${response.optimization.evaluatedVariants}. Лучший результат: ${response.optimization.feasibleFound ? 'допустимый сценарий найден' : 'найдена ближайшая альтернатива'}.`
+      );
+      await loadWorkspace();
+      setSelectedScenarioId(response.scenario.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка автоподбора сценария');
+    } finally {
+      setOptimizing(false);
+    }
+  }
+
   async function handleCalculate() {
     setCalculating(true);
     setError(null);
@@ -126,18 +158,31 @@ export function WorkspacePage({ projectId, onBack }: Props) {
           <p className="mt-2 max-w-4xl text-slate-600">{workspace.project.description}</p>
         </div>
 
-        <button
-          onClick={handleCalculate}
-          disabled={calculating || saving}
-          className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Calculator size={18} />
-          {calculating ? 'Расчет...' : 'Рассчитать сценарии'}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={handleOptimize}
+            disabled={optimizing || calculating || saving}
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Sparkles size={18} />
+            {optimizing ? 'Подбор...' : 'Автоподбор сценария'}
+          </button>
+
+          <button
+            onClick={handleCalculate}
+            disabled={calculating || optimizing || saving}
+            className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Calculator size={18} />
+            {calculating ? 'Расчет...' : 'Рассчитать сценарии'}
+          </button>
+        </div>
       </div>
 
       {error && <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
       {saving && <div className="mb-6 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Сохранение изменений...</div>}
+      {optimizing && <div className="mb-6 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Генетический алгоритм подбирает сценарий назначений...</div>}
+      {optimizationNote && <div className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{optimizationNote}</div>}
 
       <div className="mb-6 grid gap-4 md:grid-cols-4">
         <StatCard title="Лимит бюджета" value={money(workspace.project.budgetLimit)} />
@@ -153,6 +198,9 @@ export function WorkspacePage({ projectId, onBack }: Props) {
 
 
         <MatrixEditor workspace={workspace} onSave={(cells) => mutate(() => api.updateMatrix(cells))} />
+
+
+        <OptimizationInfo />
 
         <ScenariosEditor
           workspace={workspace}
@@ -589,6 +637,31 @@ function MatrixEditor({ workspace, onSave }: { workspace: Workspace; onSave: (ce
       <button onClick={() => onSave(cells)} className="mt-4 inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700">
         <Save size={16} /> Сохранить матрицу
       </button>
+    </Section>
+  );
+}
+
+
+function OptimizationInfo() {
+  return (
+    <Section
+      title="Автоматический подбор сценария"
+      description="Модуль генетического алгоритма формирует дополнительный сценарий назначений и сравнивает его с ручными вариантами."
+    >
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="font-medium text-slate-900">Что оптимизируется</div>
+          <p className="mt-1">Назначения исполнителей на задачи проекта с учетом ролей, бюджета, срока и устойчивости.</p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="font-medium text-slate-900">Как работает</div>
+          <p className="mt-1">Алгоритм создает популяцию сценариев, скрещивает и мутирует назначения, а затем оценивает варианты через расчетное ядро.</p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="font-medium text-slate-900">Результат</div>
+          <p className="mt-1">После нажатия «Автоподбор сценария» создается новый сценарий D, который участвует в общей таблице сравнения.</p>
+        </div>
+      </div>
     </Section>
   );
 }

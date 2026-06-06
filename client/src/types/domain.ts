@@ -148,3 +148,20 @@ export interface Workspace {
   scenarios: Scenario[];
   lastResult: ComparisonResult | null;
 }
+
+
+export interface OptimizationMeta {
+  populationSize: number;
+  generations: number;
+  mutationRate: number;
+  evaluatedVariants: number;
+  bestFitness: number;
+  feasibleFound: boolean;
+}
+
+export interface OptimizeProjectResponse {
+  scenario: Scenario;
+  result: ScenarioCalculationResult;
+  comparison: ComparisonResult;
+  optimization: OptimizationMeta;
+}

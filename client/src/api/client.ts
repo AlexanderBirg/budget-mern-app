@@ -1,4 +1,4 @@
-import type { ComparisonResult, Employee, MatrixCell, Project, ProjectTask, Scenario, Workspace } from '../types/domain';
+import type { ComparisonResult, Employee, MatrixCell, OptimizeProjectResponse, Project, ProjectTask, Scenario, Workspace } from '../types/domain';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -26,6 +26,7 @@ export const api = {
   getEmployees: () => request<Employee[]>('/employees'),
   getWorkspace: (projectId: string) => request<Workspace>(`/projects/${projectId}/workspace`),
   calculateProject: (projectId: string) => request<ComparisonResult>(`/projects/${projectId}/calculate`, json('POST')),
+  optimizeProject: (projectId: string, data?: Record<string, unknown>) => request<OptimizeProjectResponse>(`/projects/${projectId}/optimize`, json('POST', data || {})),
 
   // Проект.
   updateProject: (projectId: string, data: Partial<Project>) => request<Project>(`/projects/${projectId}`, json('PUT', data)),

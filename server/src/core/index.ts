@@ -8,3 +8,4 @@ export * from './calculation/calculateScenarioDuration.js';
 export * from './calculation/calculateScenarioResult.js';
 export * from './calculation/checkConstraints.js';
 export * from './calculation/compareScenarios.js';
+export * from './optimization/optimizeScenario.js';

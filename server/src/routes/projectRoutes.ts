@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { calculateProject, createProject, getProjectWorkspace, getProjects } from '../controllers/projectController.js';
+import { calculateProject, createProject, getProjectWorkspace, getProjects, optimizeProjectScenario } from '../controllers/projectController.js';
 import { createEmployee, createScenario, createTask, deleteEmployee, deleteScenario, deleteTask, replaceEmployees, replaceProjectTasks, updateDefaultMatrix, updateEmployee, updateProject, updateScenario, updateTask } from '../controllers/editController.js';
 import { getDefaultMatrix, getEmployees, getScenarios, getTasks } from '../controllers/dictionaryController.js';
 
@@ -11,6 +11,7 @@ router.post('/projects', createProject);
 router.put('/projects/:projectId', updateProject);
 router.get('/projects/:projectId/workspace', getProjectWorkspace);
 router.post('/projects/:projectId/calculate', calculateProject);
+router.post('/projects/:projectId/optimize', optimizeProjectScenario);
 router.get('/projects/:projectId/tasks', getTasks);
 router.post('/projects/:projectId/tasks', createTask);
 router.put('/projects/:projectId/tasks/bulk', replaceProjectTasks);
