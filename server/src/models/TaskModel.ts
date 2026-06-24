@@ -11,6 +11,9 @@ const TaskSchema = new Schema(
     complexityLevel: { type: String, required: true },
     isCritical: { type: Boolean, required: true },
     order: { type: Number, required: true },
+    // Визуальный шаг планировщика нужен для стабильного drag-and-drop.
+    // Расчет Ганта по-прежнему использует dependsOnTaskIds.
+    planningStep: { type: Number, default: 0 },
     // Зависимости нужны для построения диаграммы Ганта и расчета параллельного выполнения.
     dependsOnTaskIds: { type: [String], default: [] },
   },

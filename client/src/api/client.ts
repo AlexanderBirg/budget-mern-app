@@ -23,6 +23,7 @@ function json(method: string, body?: unknown): RequestInit {
 
 export const api = {
   getProjects: () => request<Project[]>('/projects'),
+  createProject: (data: Partial<Project>) => request<Project>('/projects', json('POST', data)),
   getEmployees: () => request<Employee[]>('/employees'),
   getWorkspace: (projectId: string) => request<Workspace>(`/projects/${projectId}/workspace`),
   calculateProject: (projectId: string) => request<ComparisonResult>(`/projects/${projectId}/calculate`, json('POST')),

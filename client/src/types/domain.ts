@@ -22,6 +22,7 @@ export interface ProjectTask {
   complexityLevel: ComplexityLevel;
   isCritical: boolean;
   order: number;
+  planningStep?: number;
   dependsOnTaskIds: string[];
 }
 

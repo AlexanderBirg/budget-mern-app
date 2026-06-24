@@ -191,7 +191,7 @@ export const demoScenarios: Scenario[] = [
   {
     id: 'scenario-a',
     projectId: demoProject.id,
-    name: 'A — экономичный',
+    name: 'A – экономичный',
     description: 'Минимизация ставки за счет большего числа middle/junior назначений',
     teamFitCoefficient: 0.78,
     deltaMode: 'criticalOnly',
@@ -205,7 +205,7 @@ export const demoScenarios: Scenario[] = [
   {
     id: 'scenario-b',
     projectId: demoProject.id,
-    name: 'B — сбалансированный',
+    name: 'B – сбалансированный',
     description: 'Критичная CRM-интеграция передается senior-разработчику',
     teamFitCoefficient: 0.88,
     deltaMode: 'criticalOnly',
@@ -219,7 +219,7 @@ export const demoScenarios: Scenario[] = [
   {
     id: 'scenario-c',
     projectId: demoProject.id,
-    name: 'C — усиленный',
+    name: 'C – усиленный',
     description: 'Ключевые backend-задачи выполняются senior-разработчиком',
     teamFitCoefficient: 0.94,
     deltaMode: 'criticalOnly',

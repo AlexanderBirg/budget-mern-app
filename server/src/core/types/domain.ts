@@ -32,6 +32,8 @@ export interface ProjectTask {
   complexityLevel: ComplexityLevel;
   isCritical: boolean;
   order: number;
+  // Визуальный шаг планировщика. Нужен только для удобного drag-and-drop; расчет использует dependsOnTaskIds.
+  planningStep?: number;
   // Список задач-предшественников. Текущая задача может начаться только после их завершения.
   dependsOnTaskIds: string[];
 }

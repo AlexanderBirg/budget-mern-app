@@ -25,6 +25,7 @@ export function mapTask(doc: any): ProjectTask {
     complexityLevel: doc.complexityLevel,
     isCritical: doc.isCritical,
     order: doc.order,
+    planningStep: Number.isFinite(Number(doc.planningStep)) ? Number(doc.planningStep) : undefined,
     dependsOnTaskIds: Array.isArray(doc.dependsOnTaskIds) ? doc.dependsOnTaskIds : [],
   };
 }

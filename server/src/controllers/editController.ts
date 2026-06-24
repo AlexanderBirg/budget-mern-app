@@ -58,6 +58,7 @@ export async function createTask(req: Request, res: Response): Promise<void> {
     complexityLevel: req.body.complexityLevel || 'L1',
     isCritical: Boolean(req.body.isCritical),
     order: Number(req.body.order || 1),
+    planningStep: Number(req.body.planningStep || 0),
     dependsOnTaskIds: Array.isArray(req.body.dependsOnTaskIds) ? req.body.dependsOnTaskIds : [],
   });
 
@@ -105,6 +106,7 @@ export async function replaceProjectTasks(req: Request, res: Response): Promise<
     complexityLevel: task.complexityLevel || 'L1',
     isCritical: Boolean(task.isCritical),
     order: Number(task.order || index + 1),
+    planningStep: Number.isFinite(Number(task.planningStep)) ? Number(task.planningStep) : 0,
     dependsOnTaskIds: Array.isArray(task.dependsOnTaskIds) ? task.dependsOnTaskIds.filter((id: string) => id !== task.id) : [],
   }));
 

@@ -33,7 +33,7 @@ function normalizeRole(role: string): string {
 }
 
 // Исполнитель подбирается по этапу задачи.
-// Например, для аналитики показываем только аналитиков, для QA — только тестировщиков.
+// Например, для аналитики показываем только аналитиков, для QA – только тестировщиков.
 function getAllowedEmployeesForTask(task: ProjectTask, employees: Employee[]): Employee[] {
   const allowedRoles = stageRoleMap[task.stage] || [];
   return employees.filter(employee => allowedRoles.includes(normalizeRole(employee.role)));
@@ -200,7 +200,7 @@ export function WorkspacePage({ projectId, onBack }: Props) {
         <MatrixEditor workspace={workspace} onSave={(cells) => mutate(() => api.updateMatrix(cells))} />
 
 
-        <OptimizationInfo />
+        {/* <OptimizationInfo /> */}
 
         <ScenariosEditor
           workspace={workspace}
@@ -265,23 +265,21 @@ function ProjectEditor({ workspace, onSave }: { workspace: Workspace; onSave: (d
 }
 
 function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: (action: () => Promise<unknown>) => void }) {
-  const [drafts, setDrafts] = useState<ProjectTask[]>(workspace.tasks);
+  const [drafts, setDrafts] = useState<ProjectTask[]>(() => normalizeTasksWithPlanningSteps(workspace.tasks));
 
   // Задачи редактируются сначала локально, без мгновенной отправки каждой строки на сервер.
   // Это нужно, чтобы пользователь мог спокойно изменить всю таблицу и сохранить ее одной кнопкой.
   useEffect(() => {
-    setDrafts(workspace.tasks);
+    setDrafts(normalizeTasksWithPlanningSteps(workspace.tasks));
   }, [workspace.tasks]);
 
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverStepIndex, setDragOverStepIndex] = useState<number | null>(null);
   const [manualColumnCount, setManualColumnCount] = useState(0);
 
   const orderedTasks = useMemo(() => sortTasksByOrder(drafts), [drafts]);
   const planColumns = useMemo(() => buildPlanColumns(drafts), [drafts]);
-  const visiblePlanColumns = useMemo(() => {
-    const count = Math.max(planColumns.length, manualColumnCount, 1);
-    return Array.from({ length: count }, (_, index) => planColumns[index] || []);
-  }, [planColumns, manualColumnCount]);
+  const visiblePlanColumns = useMemo(() => buildVisiblePlanColumns(drafts, manualColumnCount), [drafts, manualColumnCount]);
 
   useEffect(() => {
     setManualColumnCount(current => Math.max(current, planColumns.length));
@@ -303,6 +301,7 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
         complexityLevel: 'L1',
         isCritical: false,
         order: items.length + 1,
+        planningStep: Math.max(visiblePlanColumns.length - 1, 0),
         dependsOnTaskIds: [],
       },
     ]);
@@ -352,8 +351,15 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
     });
   }
 
-  function moveTaskToColumn(taskId: string, targetColumnIndex: number) {
-    setDrafts(items => moveTaskToPlanColumn(items, taskId, targetColumnIndex));
+  function moveTaskToColumn(taskId: string, targetColumnIndex: number, targetTaskId?: string, insertAfter = false) {
+    setDrafts(items => moveTaskToPlanColumn(items, taskId, targetColumnIndex, manualColumnCount, targetTaskId, insertAfter));
+  }
+
+  function handleDropToStep(targetColumnIndex: number, targetTaskId?: string, insertAfter = false) {
+    if (!draggedTaskId) return;
+    moveTaskToColumn(draggedTaskId, targetColumnIndex, targetTaskId, insertAfter);
+    setDraggedTaskId(null);
+    setDragOverStepIndex(null);
   }
 
   function applySequentialPlan() {
@@ -362,13 +368,19 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
       return sorted.map((task, index) => ({
         ...task,
         order: index + 1,
+        planningStep: index,
         dependsOnTaskIds: index === 0 ? [] : [sorted[index - 1].id],
       }));
     });
   }
 
   function applyMaxParallelPlan() {
-    setDrafts(items => items.map(task => ({ ...task, dependsOnTaskIds: [] })));
+    setDrafts(items => sortTasksByOrder(items).map((task, index) => ({
+      ...task,
+      order: index + 1,
+      planningStep: 0,
+      dependsOnTaskIds: [],
+    })));
   }
 
   function applyAcademicWebPlan() {
@@ -389,7 +401,7 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
       const qaIds = idsOf('qa');
       const deploymentDeps = qaIds.length > 0 ? qaIds : qaDeps;
 
-      return sorted.map((task, index) => {
+      const nextTasks = sorted.map((task, index) => {
         let dependsOnTaskIds: string[] = [];
 
         if (task.stage === 'analytics') {
@@ -419,6 +431,8 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
 
         return { ...task, order: index + 1, dependsOnTaskIds: dependsOnTaskIds.filter(id => id !== task.id) };
       });
+
+      return normalizeTasksWithPlanningSteps(nextTasks);
     });
   }
 
@@ -448,12 +462,12 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
         </div>
       </div>
 
-      <div className="mb-4 overflow-x-auto rounded-lg border border-slate-200 bg-white p-4">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="font-medium text-slate-900">Drag-and-drop планировщик зависимостей</h3>
+            <h3 className="font-medium text-slate-900">Вертикальный drag-and-drop поток работ</h3>
             <p className="text-sm text-slate-500">
-              Перетащите задачу в нужный шаг. Задачи в одной колонке считаются параллельными, а задачи следующего шага автоматически зависят от задач предыдущего шага.
+              Шаги идут сверху вниз. Задачи внутри одного шага считаются параллельными. При сохранении поток не «сжимает» шаги: каждая карточка остается в том шаге, куда ее перенесли, а зависимости пересобираются от предыдущего заполненного шага.
             </p>
           </div>
           <div className="flex gap-2">
@@ -466,52 +480,80 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
           </div>
         </div>
 
-        <div className="flex min-w-max gap-4">
+        <div className="space-y-3">
           {visiblePlanColumns.map((column, index) => (
-            <div
-              key={index}
-              onDragOver={event => event.preventDefault()}
-              onDrop={() => {
-                if (!draggedTaskId) return;
-                moveTaskToColumn(draggedTaskId, index);
-                setDraggedTaskId(null);
-              }}
-              className={`w-72 shrink-0 rounded-md border p-3 transition ${draggedTaskId ? 'border-slate-400 bg-slate-100' : 'border-slate-200 bg-slate-50'}`}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Шаг {index + 1}</div>
-                <div className="text-xs text-slate-400">{column.length} задач</div>
-              </div>
+            <div key={index} className="relative">
+              {index > 0 && (
+                <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <span>зависимость от предыдущего заполненного шага</span>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+              )}
 
-              <div className="min-h-24 space-y-2">
-                {column.length === 0 && (
+              <div
+                onDragOver={event => {
+                  event.preventDefault();
+                  setDragOverStepIndex(index);
+                }}
+                onDragLeave={() => setDragOverStepIndex(current => current === index ? null : current)}
+                onDrop={() => handleDropToStep(index)}
+                className={`rounded-lg border p-3 transition ${dragOverStepIndex === index ? 'border-slate-500 bg-slate-100 shadow-inner' : draggedTaskId ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-slate-50'}`}
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Шаг {index + 1}</div>
+                    <div className="text-xs text-slate-400">
+                      {index === 0 ? 'Стартовые задачи' : `После шага ${index}`}
+                    </div>
+                  </div>
+                  <div className="rounded-full bg-white px-2 py-1 text-xs text-slate-500 shadow-sm">
+                    {column.length} {declineTaskWord(column.length)}
+                  </div>
+                </div>
+
+                {column.length === 0 ? (
                   <div className="rounded-md border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-400">
                     Перетащите задачу сюда
                   </div>
-                )}
-
-                {column.map(task => (
-                  <div
-                    key={task.id}
-                    draggable
-                    onDragStart={() => setDraggedTaskId(task.id)}
-                    onDragEnd={() => setDraggedTaskId(null)}
-                    className="cursor-grab rounded-md border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-400 active:cursor-grabbing"
-                  >
-                    <div className="flex items-start gap-2">
-                      <GripVertical className="mt-0.5 shrink-0 text-slate-400" size={16} />
-                      <div>
-                        <div className="text-sm font-medium text-slate-900">{task.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">{task.stage}, {task.baseHours} ч., {task.complexityLevel}</div>
-                        {(task.dependsOnTaskIds || []).length > 0 && (
-                          <div className="mt-2 text-xs text-slate-500">
-                            После: {(task.dependsOnTaskIds || []).map(id => getTaskName(drafts, id)).join(', ')}
+                ) : (
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {column.map((task, taskIndex) => (
+                      <div
+                        key={task.id}
+                        draggable
+                        onDragStart={() => setDraggedTaskId(task.id)}
+                        onDragEnd={() => {
+                          setDraggedTaskId(null);
+                          setDragOverStepIndex(null);
+                        }}
+                        onDragOver={event => event.preventDefault()}
+                        onDrop={event => {
+                          event.stopPropagation();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const insertAfter = event.clientY > rect.top + rect.height / 2;
+                          handleDropToStep(index, task.id, insertAfter);
+                        }}
+                        className={`cursor-grab rounded-md border bg-white p-3 shadow-sm transition hover:border-slate-400 active:cursor-grabbing ${draggedTaskId === task.id ? 'opacity-50 ring-2 ring-slate-300' : 'border-slate-200'}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <GripVertical className="mt-0.5 shrink-0 text-slate-400" size={16} />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-900">{task.name}</div>
+                            <div className="mt-1 text-xs text-slate-500">{task.stage}, {task.baseHours} ч., {task.complexityLevel}</div>
+                            {(task.dependsOnTaskIds || []).length > 0 ? (
+                              <div className="mt-2 line-clamp-2 text-xs text-slate-500">
+                                После: {(task.dependsOnTaskIds || []).map(id => getTaskName(drafts, id)).join(', ')}
+                              </div>
+                            ) : (
+                              <div className="mt-2 text-xs text-slate-400">Без предшественников</div>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </div>
           ))}
@@ -601,7 +643,7 @@ function MatrixEditor({ workspace, onSave }: { workspace: Workspace; onSave: (ce
   }
 
   return (
-    <Section title="Матрица модели p(g,l) и δ(g,l)" description="Таблица показывает надежность и календарную неопределенность для каждой пары «грейд — сложность». Значения можно редактировать.">
+    <Section title="Матрица модели p(g,l) и δ(g,l)" description="Таблица показывает надежность и календарную неопределенность для каждой пары «грейд – сложность». Значения можно редактировать.">
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
           <thead>
@@ -834,7 +876,7 @@ function getAvailablePredecessors(task: ProjectTask, tasks: ProjectTask[]): Proj
   });
 }
 
-function buildPlanColumns(tasks: ProjectTask[]): ProjectTask[][] {
+function buildDependencyLevelColumns(tasks: ProjectTask[]): ProjectTask[][] {
   const sorted = sortTasksByOrder(tasks);
   const levelByTask = new Map<string, number>();
   const visiting = new Set<string>();
@@ -864,44 +906,156 @@ function buildPlanColumns(tasks: ProjectTask[]): ProjectTask[][] {
   return columns.length > 0 ? columns : [[]];
 }
 
-
-function moveTaskToPlanColumn(tasks: ProjectTask[], taskId: string, targetColumnIndex: number): ProjectTask[] {
+function normalizeTasksWithPlanningSteps(tasks: ProjectTask[]): ProjectTask[] {
   const sorted = sortTasksByOrder(tasks);
-  const columns = buildPlanColumns(sorted).map(column => [...column]);
+  const hasExplicitPlanning = sorted.some(task => Number.isFinite(Number(task.planningStep)));
 
-  while (columns.length <= targetColumnIndex) columns.push([]);
-
-  const movedTask = sorted.find(task => task.id === taskId);
-  if (!movedTask) return tasks;
-
-  const nextColumns = columns.map(column => column.filter(task => task.id !== taskId));
-  nextColumns[targetColumnIndex] = [...(nextColumns[targetColumnIndex] || []), movedTask];
-
-  // При переносе в колонку задача получает зависимости от задач предыдущей колонки.
-  // Так пользователь управляет параллельностью без ручного выбора каждого предшественника.
-  const previousColumn = targetColumnIndex > 0 ? nextColumns[targetColumnIndex - 1] || [] : [];
-  const safeDependencies = previousColumn
-    .filter(task => task.id !== taskId)
-    .filter(task => !taskDependsOn(sorted, task.id, taskId))
-    .map(task => task.id);
-
-  const flattened = nextColumns.flat();
-  const orderById = new Map(flattened.map((task, index) => [task.id, index + 1]));
-
-  return sorted.map(task => {
-    if (task.id === taskId) {
-      return {
-        ...task,
-        order: orderById.get(task.id) || task.order,
-        dependsOnTaskIds: safeDependencies,
-      };
-    }
-
-    return {
+  if (hasExplicitPlanning) {
+    return sorted.map((task, index) => ({
       ...task,
-      order: orderById.get(task.id) || task.order,
-    };
+      order: index + 1,
+      planningStep: Math.max(0, Number.isFinite(Number(task.planningStep)) ? Number(task.planningStep) : 0),
+      dependsOnTaskIds: Array.isArray(task.dependsOnTaskIds) ? task.dependsOnTaskIds : [],
+    }));
+  }
+
+  // Для старых данных, где еще нет planningStep, один раз восстанавливаем шаги из зависимостей.
+  const dependencyColumns = buildDependencyLevelColumns(sorted);
+  const normalized: ProjectTask[] = [];
+
+  dependencyColumns.forEach((column, planningStep) => {
+    column.forEach(task => {
+      normalized.push({
+        ...task,
+        planningStep,
+        order: normalized.length + 1,
+        dependsOnTaskIds: Array.isArray(task.dependsOnTaskIds) ? task.dependsOnTaskIds : [],
+      });
+    });
   });
+
+  return normalized;
+}
+
+function buildPlanColumns(tasks: ProjectTask[]): ProjectTask[][] {
+  const sorted = normalizeTasksWithPlanningSteps(tasks);
+  const maxPlanningStep = sorted.reduce((max, task) => Math.max(max, Math.max(0, Number(task.planningStep || 0))), 0);
+  const columns: ProjectTask[][] = Array.from({ length: maxPlanningStep + 1 }, () => []);
+
+  sorted.forEach(task => {
+    const planningStep = Math.max(0, Number(task.planningStep || 0));
+    if (!columns[planningStep]) columns[planningStep] = [];
+    columns[planningStep].push(task);
+  });
+
+  return columns.length > 0 ? columns : [[]];
+}
+
+
+function buildVisiblePlanColumns(tasks: ProjectTask[], manualColumnCount: number): ProjectTask[][] {
+  const planColumns = buildPlanColumns(tasks);
+  const count = Math.max(planColumns.length, manualColumnCount, 1);
+  return Array.from({ length: count }, (_, index) => planColumns[index] || []);
+}
+
+function declineTaskWord(count: number): string {
+  const value = Math.abs(count) % 100;
+  const lastDigit = value % 10;
+
+  if (value > 10 && value < 20) return 'задач';
+  if (lastDigit === 1) return 'задача';
+  if (lastDigit >= 2 && lastDigit <= 4) return 'задачи';
+  return 'задач';
+}
+
+function rebuildTasksFromPlanColumns(tasks: ProjectTask[], columns: string[][]): ProjectTask[] {
+  const taskById = new Map(tasks.map(task => [task.id, task]));
+  const usedIds = new Set<string>();
+  const normalizedColumns = columns.map(column => {
+    const uniqueColumn: string[] = [];
+
+    column.forEach(taskId => {
+      if (!taskById.has(taskId)) return;
+      if (usedIds.has(taskId)) return;
+
+      usedIds.add(taskId);
+      uniqueColumn.push(taskId);
+    });
+
+    return uniqueColumn;
+  });
+
+  const missingTasks = sortTasksByOrder(tasks).filter(task => !usedIds.has(task.id));
+  if (missingTasks.length > 0) {
+    normalizedColumns[0] = [...(normalizedColumns[0] || []), ...missingTasks.map(task => task.id)];
+  }
+
+  let order = 1;
+  let previousFilledColumnIds: string[] = [];
+  const rebuiltTasks: ProjectTask[] = [];
+
+  normalizedColumns.forEach((column, columnIndex) => {
+    // Важное отличие от v12: пустые шаги больше не обнуляют зависимости следующих задач.
+    // Если шаг пустой, следующие задачи зависят от предыдущего ЗАПОЛНЕННОГО шага.
+    const dependencyIds = previousFilledColumnIds.filter(taskId => taskById.has(taskId));
+
+    column.forEach(taskId => {
+      const task = taskById.get(taskId);
+      if (!task) return;
+
+      rebuiltTasks.push({
+        ...task,
+        order,
+        planningStep: columnIndex,
+        dependsOnTaskIds: dependencyIds.filter(id => id !== task.id),
+      });
+      order += 1;
+    });
+
+    if (column.length > 0) {
+      previousFilledColumnIds = column.filter(taskId => taskById.has(taskId));
+    }
+  });
+
+  return rebuiltTasks;
+}
+
+function moveTaskToPlanColumn(
+  tasks: ProjectTask[],
+  taskId: string,
+  targetColumnIndex: number,
+  manualColumnCount: number,
+  targetTaskId?: string,
+  insertAfter = false,
+): ProjectTask[] {
+  if (taskId === targetTaskId) return tasks;
+
+  const visibleColumns = buildVisiblePlanColumns(tasks, manualColumnCount).map(column => column.map(task => task.id));
+  while (visibleColumns.length <= targetColumnIndex) visibleColumns.push([]);
+
+  const sourceColumnIndex = visibleColumns.findIndex(column => column.includes(taskId));
+  if (sourceColumnIndex === -1) return tasks;
+
+  const sourceColumn = visibleColumns[sourceColumnIndex] || [];
+  const sameColumnDrop = sourceColumnIndex === targetColumnIndex;
+  if (sameColumnDrop && !targetTaskId) return tasks;
+
+  const nextColumns = visibleColumns.map(column => column.filter(id => id !== taskId));
+  const targetColumn = nextColumns[targetColumnIndex] || [];
+
+  if (targetTaskId && targetColumn.includes(targetTaskId)) {
+    const targetIndex = targetColumn.indexOf(targetTaskId);
+    const insertIndex = insertAfter ? targetIndex + 1 : targetIndex;
+    targetColumn.splice(insertIndex, 0, taskId);
+  } else {
+    targetColumn.push(taskId);
+  }
+
+  nextColumns[targetColumnIndex] = targetColumn;
+
+  // После drag-and-drop пересобираем только поток планировщика:
+  // карточки остаются в тех шагах, куда их положил пользователь.
+  return rebuildTasksFromPlanColumns(tasks, nextColumns);
 }
 
 function PredecessorPicker({ task, tasks, onChange }: { task: ProjectTask; tasks: ProjectTask[]; onChange: (ids: string[]) => void }) {

@@ -106,7 +106,7 @@ export function optimizeScenarioAssignments(
 
   const scenario = buildScenarioFromGenes(
     scenarioId,
-    options.scenarioName || 'D — автоматически подобранный',
+    options.scenarioName || 'D – автоматически подобранный',
     'Сценарий сформирован модулем автоматического подбора на основе генетического алгоритма.',
     project.id,
     tasks,

@@ -1,6 +1,6 @@
 import { Schema, model } from 'mongoose';
 
-// Матрица хранит значения p(g,l) и δ(g,l) для пар «грейд — сложность».
+// Матрица хранит значения p(g,l) и δ(g,l) для пар «грейд – сложность».
 const MatrixCellSchema = new Schema(
   {
     grade: { type: String, required: true },
