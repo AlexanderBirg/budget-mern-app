@@ -14,6 +14,17 @@ interface Props {
   onBack: () => void;
 }
 
+type WorkspaceScreen = 'overview' | 'project' | 'tasks' | 'matrix' | 'scenarios' | 'results';
+
+const workspaceScreens: Array<{ id: WorkspaceScreen; label: string }> = [
+  { id: 'overview', label: 'Обзор' },
+  { id: 'project', label: 'Проект' },
+  { id: 'tasks', label: 'Задачи и поток' },
+  { id: 'matrix', label: 'Матрица' },
+  { id: 'scenarios', label: 'Сценарии' },
+  { id: 'results', label: 'Результаты' },
+];
+
 const stages: ProjectStage[] = ['analytics', 'design', 'frontend', 'backend', 'integration', 'qa', 'deployment'];
 const complexities: ComplexityLevel[] = ['L1', 'L2', 'L3', 'L4'];
 const grades: GradeCode[] = ['intern', 'junior', 'middle', 'senior'];
@@ -33,7 +44,7 @@ function normalizeRole(role: string): string {
 }
 
 // Исполнитель подбирается по этапу задачи.
-// Например, для аналитики показываем только аналитиков, для QA – только тестировщиков.
+// Например, для аналитики показываем только аналитиков, для QA — только тестировщиков.
 function getAllowedEmployeesForTask(task: ProjectTask, employees: Employee[]): Employee[] {
   const allowedRoles = stageRoleMap[task.stage] || [];
   return employees.filter(employee => allowedRoles.includes(normalizeRole(employee.role)));
@@ -63,6 +74,7 @@ export function WorkspacePage({ projectId, onBack }: Props) {
   const [optimizationNote, setOptimizationNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const [activeScreen, setActiveScreen] = useState<WorkspaceScreen>('overview');
 
   async function loadWorkspace() {
     setError(null);
@@ -164,7 +176,7 @@ export function WorkspacePage({ projectId, onBack }: Props) {
             disabled={optimizing || calculating || saving}
             className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Sparkles size={18} />
+            {/* <Sparkles size={18} /> */}
             {optimizing ? 'Подбор...' : 'Автоподбор сценария'}
           </button>
 
@@ -191,54 +203,136 @@ export function WorkspacePage({ projectId, onBack }: Props) {
         <StatCard title="Рекомендация" value={recommendedName} note={result ? 'по последнему расчету' : 'расчет еще не выполнен'} />
       </div>
 
+      <WorkspaceTabs activeScreen={activeScreen} onChange={setActiveScreen} />
+
       <div className="space-y-6">
-        <ProjectEditor workspace={workspace} onSave={(data) => mutate(() => api.updateProject(projectId, data))} />
+        {activeScreen === 'overview' && (
+          <OverviewScreen
+            workspace={workspace}
+            result={result}
+            recommendedName={recommendedName}
+            onOpen={setActiveScreen}
+          />
+        )}
 
-        <TasksEditor workspace={workspace} onMutate={mutate} />
+        {activeScreen === 'project' && (
+          <ProjectEditor workspace={workspace} onSave={(data) => mutate(() => api.updateProject(projectId, data))} />
+        )}
 
+        {activeScreen === 'tasks' && (
+          <TasksEditor workspace={workspace} onMutate={mutate} />
+        )}
 
-        <MatrixEditor workspace={workspace} onSave={(cells) => mutate(() => api.updateMatrix(cells))} />
+        {activeScreen === 'matrix' && (
+          <MatrixEditor workspace={workspace} onSave={(cells) => mutate(() => api.updateMatrix(cells))} />
+        )}
 
+        {activeScreen === 'scenarios' && (
+          <ScenariosEditor
+            workspace={workspace}
+            selectedScenario={selectedScenario}
+            selectedScenarioId={selectedScenarioId}
+            onSelect={setSelectedScenarioId}
+            onMutate={mutate}
+          />
+        )}
 
-        {/* <OptimizationInfo /> */}
-
-        <ScenariosEditor
-          workspace={workspace}
-          selectedScenario={selectedScenario}
-          selectedScenarioId={selectedScenarioId}
-          onSelect={setSelectedScenarioId}
-          onMutate={mutate}
-        />
-
-        <Section title="Результаты сравнения" description="Расчет выполняется сервером: Express достает данные из MongoDB и передает их в расчетное ядро.">
-          {!result ? (
-            <div className="rounded-md border border-dashed border-slate-300 p-8 text-center text-slate-500">
-              Нажмите «Рассчитать сценарии», чтобы получить сравнение.
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <ComparisonTable result={result} />
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <div className="mb-1 flex items-center gap-2 font-medium text-slate-900"><RotateCcw size={16} /> Управленческий вывод</div>
-                {result.recommendedScenarioId ? (
-                  <p>Рекомендуемый сценарий: <b>{recommendedName}</b>. Он выбран как минимальный по бюджету среди сценариев, которые проходят ограничения проекта.</p>
-                ) : (
-                  <p>Полностью допустимый сценарий отсутствует. Необходимо изменить состав команды, бюджет или срок проекта.</p>
-                )}
-              </div>
-              <BudgetChart result={result} />
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-950">Диаграммы Ганта по сценариям</h2>
-                  <p className="mt-1 text-sm text-slate-500">Диаграммы показывают различия сценариев по календарному расписанию, зависимостям и длительности задач.</p>
-                </div>
-                {result.results.map(item => <GanttChart key={item.scenarioId} result={item} />)}
-              </div>
-            </div>
-          )}
-        </Section>
+        {activeScreen === 'results' && (
+          <ResultsScreen result={result} recommendedName={recommendedName} />
+        )}
       </div>
     </main>
+  );
+}
+
+function WorkspaceTabs({ activeScreen, onChange }: { activeScreen: WorkspaceScreen; onChange: (screen: WorkspaceScreen) => void }) {
+  return (
+    <div className="mb-6 overflow-x-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+      <div className="flex min-w-max gap-2">
+        {workspaceScreens.map(screen => (
+          <button
+            key={screen.id}
+            onClick={() => onChange(screen.id)}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${activeScreen === screen.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+          >
+            {screen.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OverviewScreen({ workspace, result, recommendedName, onOpen }: {
+  workspace: Workspace;
+  result: ComparisonResult | null;
+  recommendedName: string;
+  onOpen: (screen: WorkspaceScreen) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <Section title="Экран: обзор проекта">
+        <div className="grid gap-4 md:grid-cols-4">
+          <StatCard title="Задачи" value={workspace.tasks.length} />
+          <StatCard title="Исполнители" value={workspace.employees.length} />
+          <StatCard title="Сценарии" value={workspace.scenarios.length} />
+          <StatCard title="Результат" value={result ? recommendedName : 'нет расчета'} />
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <QuickOpenButton title="Проект" note="ограничения" onClick={() => onOpen('project')} />
+          <QuickOpenButton title="Задачи" note="поток работ" onClick={() => onOpen('tasks')} />
+          <QuickOpenButton title="Матрица" note="p и δ" onClick={() => onOpen('matrix')} />
+          <QuickOpenButton title="Сценарии" note="назначения" onClick={() => onOpen('scenarios')} />
+          <QuickOpenButton title="Результаты" note="сравнение" onClick={() => onOpen('results')} />
+        </div>
+      </Section>
+
+      {result && <ResultsScreen result={result} recommendedName={recommendedName} compact />}
+    </div>
+  );
+}
+
+function QuickOpenButton({ title, note, onClick }: { title: string; note: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-slate-400 hover:bg-white"
+    >
+      <div className="font-medium text-slate-900">{title}</div>
+      <div className="mt-1 text-xs text-slate-500">{note}</div>
+    </button>
+  );
+}
+
+function ResultsScreen({ result, recommendedName, compact = false }: { result: ComparisonResult | null; recommendedName: string; compact?: boolean }) {
+  return (
+    <Section title={compact ? 'Последний расчет' : 'Экран: результаты сравнения'}>
+      {!result ? (
+        <div className="rounded-md border border-dashed border-slate-300 p-8 text-center text-slate-500">
+          Нажмите «Рассчитать сценарии», чтобы получить сравнение.
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <ComparisonTable result={result} />
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="mb-1 flex items-center gap-2 font-medium text-slate-900"><RotateCcw size={16} /> Вывод</div>
+            {result.recommendedScenarioId ? (
+              <p>Рекомендуемый сценарий: <b>{recommendedName}</b>.</p>
+            ) : (
+              <p>Допустимый сценарий не найден. Измените бюджет, срок, устойчивость или назначения.</p>
+            )}
+          </div>
+          <BudgetChart result={result} />
+          {!compact && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-slate-950">Диаграммы Ганта</h2>
+              {result.results.map(item => <GanttChart key={item.scenarioId} result={item} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -248,7 +342,7 @@ function ProjectEditor({ workspace, onSave }: { workspace: Workspace; onSave: (d
   useEffect(() => setDraft(workspace.project), [workspace.project]);
 
   return (
-    <Section title="Параметры проекта" description="Эти значения задают ограничения, по которым затем проверяются сценарии.">
+    <Section title="Экран: параметры проекта">
       <div className="grid gap-4 md:grid-cols-2">
         <LabeledInput label="Название проекта" value={draft.name} onChange={value => setDraft({ ...draft, name: value })} />
         <LabeledInput label="Описание" value={draft.description || ''} onChange={value => setDraft({ ...draft, description: value })} />
@@ -437,16 +531,11 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
   }
 
   return (
-    <Section title="Задачи проекта" description="Задачи являются входом расчетной модели: часы, сложность, критичность и зависимости влияют на бюджет, риск и календарный план.">
+    <Section title="Экран: задачи и поток работ">
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 flex items-start gap-2">
-          <GitBranch className="mt-0.5 text-slate-500" size={18} />
-          <div>
-            <h3 className="font-medium text-slate-900">Порядок и параллельность работ</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Поле «После каких задач» задает предшественников. Если у двух задач один и тот же предшественник, они могут стартовать параллельно после его завершения. Если предшественников нет, задача может начаться сразу.
-            </p>
-          </div>
+        <div className="mb-3 flex items-center gap-2">
+          <GitBranch className="text-slate-500" size={18} />
+          <h3 className="font-medium text-slate-900">Шаблоны порядка работ</h3>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -465,10 +554,8 @@ function TasksEditor({ workspace, onMutate }: { workspace: Workspace; onMutate: 
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="font-medium text-slate-900">Вертикальный drag-and-drop поток работ</h3>
-            <p className="text-sm text-slate-500">
-              Шаги идут сверху вниз. Задачи внутри одного шага считаются параллельными. При сохранении поток не «сжимает» шаги: каждая карточка остается в том шаге, куда ее перенесли, а зависимости пересобираются от предыдущего заполненного шага.
-            </p>
+            <h3 className="font-medium text-slate-900">Вертикальный поток работ</h3>
+            <p className="text-sm text-slate-500">Перетащите задачу в нужный шаг. Задачи внутри одного шага выполняются параллельно.</p>
           </div>
           <div className="flex gap-2">
             <button onClick={addPlanColumn} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
@@ -643,7 +730,7 @@ function MatrixEditor({ workspace, onSave }: { workspace: Workspace; onSave: (ce
   }
 
   return (
-    <Section title="Матрица модели p(g,l) и δ(g,l)" description="Таблица показывает надежность и календарную неопределенность для каждой пары «грейд – сложность». Значения можно редактировать.">
+    <Section title="Экран: матрица модели">
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
           <thead>
@@ -684,29 +771,6 @@ function MatrixEditor({ workspace, onSave }: { workspace: Workspace; onSave: (ce
 }
 
 
-function OptimizationInfo() {
-  return (
-    <Section
-      title="Автоматический подбор сценария"
-      description="Модуль генетического алгоритма формирует дополнительный сценарий назначений и сравнивает его с ручными вариантами."
-    >
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          <div className="font-medium text-slate-900">Что оптимизируется</div>
-          <p className="mt-1">Назначения исполнителей на задачи проекта с учетом ролей, бюджета, срока и устойчивости.</p>
-        </div>
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          <div className="font-medium text-slate-900">Как работает</div>
-          <p className="mt-1">Алгоритм создает популяцию сценариев, скрещивает и мутирует назначения, а затем оценивает варианты через расчетное ядро.</p>
-        </div>
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          <div className="font-medium text-slate-900">Результат</div>
-          <p className="mt-1">После нажатия «Автоподбор сценария» создается новый сценарий D, который участвует в общей таблице сравнения.</p>
-        </div>
-      </div>
-    </Section>
-  );
-}
 
 function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSelect, onMutate }: {
   workspace: Workspace;
@@ -745,7 +809,7 @@ function ScenariosEditor({ workspace, selectedScenario, selectedScenarioId, onSe
   }
 
   return (
-    <Section title="Сценарии команды и назначения" description="Здесь редактируется сам сценарий и его главное содержание: какая задача какому исполнителю назначена.">
+    <Section title="Экран: сценарии команды">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <select className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" value={selectedScenarioId || ''} onChange={event => onSelect(event.target.value)}>
           {workspace.scenarios.map(scenario => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}
